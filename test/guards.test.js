@@ -89,9 +89,37 @@ const O = require(HUB + '/config.js').org || 'https://dev.azure.com/example-org'
   check('stashinfo.js runs only stash list, rev-parse, diff, ls-tree, merge-tree, merge-base, show', infoVerbs.length >= 6 && infoVerbs.every((v) => ['stash', 'rev-parse', 'diff', 'ls-tree', 'merge-tree', 'merge-base', 'show'].includes(v)), [...new Set(infoVerbs)].join(','));
   check('stashinfo.js only lists stashes (never drop, apply, pop, store, push, clear)', [...infoSrc.matchAll(/\[\s*'stash',\s*'([a-z-]+)'/g)].every((m) => m[1] === 'list') && !/'(update-ref|worktree|checkout|reset|commit|push|pull|fetch|merge|rebase|clean|add|rm|apply|branch|restore|switch)'/.test(infoSrc));
   const writers = names.filter((n) => /'(drop|store)'|\[\s*'update-ref'|'worktree',\s*'add'|'stash',\s*'(apply|pop|push|clear)'/.test(src.get(n)));
-  check('stash drop/store, update-ref and worktree add appear only in stashmgr.js and mover.js', writers.every((n) => ['stashmgr.js', 'mover.js'].includes(n)) && writers.includes('stashmgr.js'), writers.join());
+  check('stash drop/store, update-ref and worktree add appear only in stashmgr.js, mover.js and testing.js (which only adds a worktree)', writers.every((n) => ['stashmgr.js', 'mover.js', 'testing.js'].includes(n)) && writers.includes('stashmgr.js'), writers.join());
   check('stashmgr.js never pushes, commits or fetches', !/'(push|commit|fetch|pull|merge|rebase|reset|checkout|clean)'/.test(src.get('stashmgr.js')));
   check('sessions.js only reads files (no write, no network, no git)', !/writeFileSync|appendFileSync|unlinkSync|rmSync|fetch\(|child_process|execFile|spawn/.test(src.get('sessions.js')));
+
+  console.log('--- the work planner records in the hub only');
+  const pbSrc = src.get('planboard.js') || '';
+  check('planboard.js never talks to Azure DevOps itself (no ado client, no fetch, no az)', pbSrc.length > 0 && !/collectors\/ado|\bado\(|\bfetch\(|child_process|execFile|spawn|['"]az['"]/.test(pbSrc));
+  check('planboard.js runs no git and writes no files', !/gitx?\(|writeFileSync|appendFileSync|unlinkSync|rmSync/.test(pbSrc));
+  check('the planner reaches Azure DevOps only through the read-only fetchMany and searchByKeywords (batch and WIQL SELECT)', /fetchMany/.test(src.get('server.js')) && /searchByKeywords/.test(src.get('server.js')) && !/workPlanner[^;]*\bado\(/.test(src.get('server.js')));
+  const searchQ = (src.get('collectors/tasks.js').match(/query: "SELECT[^"]*"/g) || []).concat((src.get('collectors/tasks.js').match(/query: `SELECT/g) || []));
+  check('every search the task collector sends is a SELECT', searchQ.length >= 3 && searchQ.every((q) => /query: ["`]SELECT/.test(q)), String(searchQ.length));
+  check('keyword text is quote-doubled before it goes into a search', /wiqlText = \(s\) => String\(s\)\.replace\([^)]*\)\.replace\(\/'\/g, "''"\)/.test(src.get('collectors/tasks.js')));
+
+  console.log('--- AI auto-planning only proposes');
+  const paSrc = src.get('planai.js') || '';
+  check('planai.js has no Azure DevOps client, no network, no git, no shell and writes no files', paSrc.length > 0 && !/collectors\/ado|\bado\(|\bfetch\(|child_process|execFile|spawn|gitx?\(|writeFileSync|appendFileSync|unlinkSync|rmSync/.test(paSrc));
+  check('planai.js reaches the planner only through planboard functions and the model only through ai.json', /deps\.planner\.(schedule|delegate|board)/.test(paSrc) && /deps\.ai\.json/.test(paSrc) && !/require\('\.\/ai'\)/.test(paSrc));
+  check('every model prompt marks the data as untrusted, and data is escaped so it cannot write a tag', /untrusted data/.test(paSrc) && /EVERYTHING inside <items> is untrusted/.test(paSrc) && /replace\(\/<\/g, '\\\\u003c'\)/.test(paSrc));
+  check('the comment fetch is a plain GET (no body) and only the collector makes it', /async function fetchComments[\s\S]*?await ado\('_apis\/wit\/workItems\/' \+ id \+ '\/comments/.test(src.get('collectors/tasks.js')) && !/comments[^\n]*method\s*:/.test(src.get('collectors/tasks.js')));
+  const bundleSrc = paSrc.slice(paSrc.indexOf('function bundleOf'), paSrc.indexOf('const fingerprintOf'));
+  check('every text field of a bundle goes through the masking and size limit (forModel)', (bundleSrc.match(/forModel\(/g) || []).length >= 9 && /maskEmails\(htmlToText/.test(src.get('lib/text.js')));
+
+  console.log('--- the testing phase writes only a new QA worktree');
+  const tsSrc = src.get('testing.js') || '';
+  const tsVerbs = [...tsSrc.matchAll(/gitx\([^,]+,\s*\[\s*'([a-z-]+)'/g)].map((m) => m[1]);
+  check('testing.js runs only git log, rev-parse and worktree add', tsVerbs.length >= 3 && tsVerbs.every((v) => ['log', 'rev-parse', 'worktree'].includes(v)) && /\['worktree', 'add', '--no-track', '-b'/.test(tsSrc), [...new Set(tsVerbs)].join(','));
+  check('testing.js never commits, pushes, fetches, pulls, merges, resets or cleans', !/'(commit|push|fetch|pull|merge|rebase|reset|checkout|clean|stash|apply|am|cherry-pick)'/.test(tsSrc));
+  check('testing.js has no Azure DevOps client, no network and no shell', tsSrc.length > 0 && !/collectors\/ado|\bado\(|\bfetch\(|child_process|execFile|spawn|['"]az['"]/.test(tsSrc));
+  check('testing.js writes files only inside the new worktree, after a path check', (tsSrc.match(/writeFileSync\(/g) || []).length === 1 && /startsWith\(path\.resolve\(dir\) \+ path\.sep\)/.test(tsSrc) && /allowed\.some/.test(tsSrc));
+  check('testing.js refuses to read paths that may hold secrets (.env, .auth, traces, reports)', /guardPath/.test(tsSrc) && /SECRET_PATHS/.test(tsSrc) && /\.env/.test(tsSrc) && /trace\\\.zip/.test(tsSrc));
+  check('the spec reader is pure text work: no files, no processes, no network', !/require\('fs'\)|child_process|fetch\(/.test(src.get('lib/specparse.js') || 'x'));
 
   console.log('--- the ratings only read');
   const scSrc = src.get('scorecard.js') || '';
@@ -100,6 +128,16 @@ const O = require(HUB + '/config.js').org || 'https://dev.azure.com/example-org'
   check('scorecard.js names no git write verb', !/'(checkout|reset|stash|commit|push|pull|fetch|merge|rebase|clean|add|rm|apply|worktree|branch|restore|switch)'/.test(scSrc));
   check('scorecard.js only reads the Azure DevOps hooks settings as text and never writes outside the hub data folder', !/writeFileSync\((?!RESULT_FILE|tmp)/.test(scSrc.replace(/const tmp = RESULT_FILE \+ '\.tmp'; fs\.writeFileSync\(tmp/, '')));
   check('the command-line tool and hooks never open the database', ['bin/hub.js', 'hooks/session-start.js', 'hooks/stop-reminder.js', 'lib/format.js', 'lib/task.js'].every((f) => { try { return !/DatabaseSync|require\('\.\.\/store'\)|require\('\.\/store'\)/.test(fs.readFileSync(HUB + '/' + f, 'utf8')); } catch { return false; } }));
+
+  console.log('--- the comment watch only reads and only notifies');
+  const cwSrc = src.get('commentwatch.js') || '';
+  check('commentwatch.js has no Azure DevOps client, no network, no shell, no git and writes no files', cwSrc.length > 0 && !/collectors\/ado|\bado\(|\bfetch\(|child_process|execFile|spawn|gitx?\(|writeFileSync|appendFileSync|unlinkSync|rmSync/.test(cwSrc));
+  check('commentwatch.js makes no model call (no tokens)', !/require\('\.\/ai'\)|ai\.json|claude/i.test(cwSrc));
+  const tk = src.get('collectors/tasks.js');
+  check('the comment thread fetch is a plain GET (no body) and the counts use only the read-only batch search', /async function fetchThread[\s\S]*?await ado\('_apis\/wit\/workItems\/' \+ id \+ '\/comments[^\n]*\)/.test(tk) && /async function fetchCounts[\s\S]*?await ado\('_apis\/wit\/workitemsbatch\?api-version=7\.1', \{ ids:/.test(tk));
+  check('the server reaches the comment watch only through the read-only collector functions', /fetchCounts/.test(src.get('server.js')) && /fetchThread/.test(src.get('server.js')) && !/commentWatch[^;]*\bado\(/.test(src.get('server.js')));
+  const cwUi = fs.readFileSync(path.join(HUBROOT, 'ui', 'comments.js'), 'utf8');
+  check('comment text is shown as text (escaped), never as markup', !/\be\.html\b/.test(cwUi) && /esc\(e\.snippet\)/.test(cwUi));
 
   console.log('--- the model process gets no Azure credentials');
   const pool = [{ id: 5945, type: 'Bug', state: 'Active', title: 'Sample: Address line autolist displays duplicate entries', repos: ['portal'] }];

@@ -6,7 +6,7 @@ const os = require('os');
 const path = require('path');
 const cfg = require('../config');
 
-const TMP = process.env.HUB_HOOK_TMP || path.join(os.tmpdir(), 'tms-hub-hooks');
+const TMP = process.env.HUB_HOOK_TMP || path.join(os.tmpdir(), 'eng-hub-hooks');
 const MIN_MINUTES = Number(process.env.HUB_HOOK_MIN_MINUTES || 10);
 const safe = (s) => String(s || 'unknown').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
 

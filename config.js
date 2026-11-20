@@ -10,7 +10,7 @@ const path = require('path');
 const ROOT = __dirname;
 const FILE = process.env.HUB_CONFIG ? path.resolve(process.env.HUB_CONFIG) : path.join(ROOT, 'hub.config.json');
 const KNOWN = ['_note', 'title', 'brand', 'userName', 'organization', 'project', 'branchPrefix', 'scanFolders', 'clones', 'repoMapFile', 'workspaceRoot', 'worktreeRoot',
-  'dataDir', 'backupDir', 'port', 'coWorkerNames', 'azureDevOps', 'botPullRequests', 'usage', 'sessions', 'learningsDir', 'scorecard'];
+  'dataDir', 'backupDir', 'port', 'coWorkerNames', 'azureDevOps', 'botPullRequests', 'planner', 'testing', 'usage', 'sessions', 'learningsDir', 'scorecard'];
 
 const problems = []; // things the user should know; shown on the page and by `setup --check`
 let raw = {};
@@ -103,9 +103,21 @@ if (!/^[A-Za-z0-9._-]+(\/[A-Za-z0-9._-]+)*$/.test(prefix)) problems.push('branch
 const workspaceRoot = rel(str(raw.workspaceRoot)) || commonParent(allPaths);
 const usageCfg = raw.usage && typeof raw.usage === 'object' ? raw.usage : {};
 const scoreCfg = raw.scorecard && typeof raw.scorecard === 'object' ? raw.scorecard : {};
-const lp = scoreCfg.localPlatform && typeof scoreCfg.localPlatform === 'object' ? scoreCfg.localPlatform : null;
+const flowCfg = scoreCfg.flowTests || scoreCfg.localPlatform; // "localPlatform" is the old name of "flowTests" and still works
+const lp = flowCfg && typeof flowCfg === 'object' ? flowCfg : null;
 const HOME = os.homedir();
 const title = str(raw.title, 'Engineering Hub');
+// Testing phase: where the flow specs and the evidence runs are, and how a spec is rewritten for a QA repository. Everything is optional.
+const tCfg = raw.testing && typeof raw.testing === 'object' ? raw.testing : {};
+const qCfg = tCfg.qa && typeof tCfg.qa === 'object' ? tCfg.qa : {};
+const slash = (p) => String(p || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+// Work planner settings, each with a sensible default.
+const plCfg = raw.planner && typeof raw.planner === 'object' ? raw.planner : {};
+const int = (v, d, lo, hi) => { const n = Number(v); return Number.isInteger(n) && n >= lo && n <= hi ? n : d; };
+const wd = Array.isArray(plCfg.workingDays) ? [...new Set(plCfg.workingDays.filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))] : null;
+if (Array.isArray(plCfg.workingDays) && (!wd || !wd.length)) problems.push('planner.workingDays needs at least one weekday number (0 = Sunday ... 6 = Saturday); the default Monday to Friday is used.');
+// Comment watch: unread comments on the work items you follow, and who you are waiting on. Read-only against Azure DevOps, no model.
+const cwCfg = raw.commentWatch && typeof raw.commentWatch === 'object' ? raw.commentWatch : {};
 // Pull requests that are automated (dependency updates, tool accounts): they are shown as "Automated" and left out of "waiting for you".
 const botCfg = raw.botPullRequests && typeof raw.botPullRequests === 'object' ? raw.botPullRequests : {};
 const botTitleRe = (() => {
@@ -129,6 +141,45 @@ module.exports = {
   project,
   adoConfigured,
   botPr: { repos: list(botCfg.repos), titleRe: botTitleRe },
+  testing: {
+    names: { source: str(tCfg.names && tCfg.names.source, 'Source specs'), qa: str(tCfg.names && tCfg.names.qa, 'QA repository') }, // how your own folders are called in the page and in the generated files
+    evidenceCommand: str(tCfg.evidenceCommand), // optional: the command you run to record evidence for one spec; <spec> is replaced by the file name
+    specsDir: rel(str(tCfg.specsDir)) || (lp ? rel(str(lp.flowsDir)) : ''), // the flow specs (Playwright, TypeScript)
+    evidenceDir: rel(str(tCfg.evidenceDir)) || (lp ? rel(str(lp.evidenceDir)) : ''), // where your evidence runs are written
+    worktreeRoot: rel(str(tCfg.worktreeRoot)),
+    qa: {
+      path: rel(str(qCfg.path)), // the QA automation repository clone; empty = no QA pack
+      specsDir: slash(str(qCfg.specsDir, 'tests/flows')), libDir: slash(str(qCfg.libDir, 'tests/lib')), cardsDir: slash(str(qCfg.cardsDir, 'docs/flow-cards')),
+      inventoryFile: slash(str(qCfg.inventoryFile, 'docs/test-inventory.md')),
+      inventoryHeading: str(qCfg.inventoryHeading), inventorySummary: str(qCfg.inventorySummary), // empty = built from testing.names.source
+      defaultTags: list(qCfg.defaultTags).length ? list(qCfg.defaultTags) : ['@regression'],
+      importFrom: str(qCfg.importFrom, '../lib/'), importTo: str(qCfg.importTo, '../lib/'),
+      serialTimeoutMs: int(qCfg.serialTimeoutMs, 180000, 1000, 3600000),
+    },
+  },
+  commentWatch: {
+    enabled: cwCfg.enabled !== false,
+    pollMinutes: int(cwCfg.pollMinutes, 10, 2, 240),
+    hoursFrom: int(cwCfg.hoursFrom, 7, 0, 23), hoursTo: int(cwCfg.hoursTo, 20, 1, 24), // the background check runs only between these hours
+    nudgeDays: int(cwCfg.nudgeDays, 2, 1, 30), // working days before an ask without a reply is flagged
+    maxWatched: int(cwCfg.maxWatched, 400, 10, 2000),
+  },
+  planner: {
+    dayCapacity: int(plCfg.dayCapacity, 5, 1, 50), // soft limit: a day above it is flagged
+    workingDays: wd && wd.length ? wd.sort() : [1, 2, 3, 4, 5],
+    horizonDays: int(plCfg.horizonDays, 5, 1, 14), // working days shown as columns
+    monitorEveryDays: int(plCfg.monitorEveryDays, 2, 1, 30),
+    wakeAfterWorkingDays: int(plCfg.wakeAfterWorkingDays, 10, 1, 120),
+    searchTypes: list(plCfg.searchTypes), // work item types a keyword search may return (empty = all)
+    ai: {
+      enabled: !(plCfg.ai && plCfg.ai.enabled === false),
+      maxItems: int(plCfg.ai && plCfg.ai.maxItems, 30, 1, 60),
+      includeDiscussion: !(plCfg.ai && plCfg.ai.includeDiscussion === false), // discussion text goes to the model unless this is false
+      commentsPerItem: int(plCfg.ai && plCfg.ai.commentsPerItem, 8, 1, 20),
+      analyseModel: str(plCfg.ai && plCfg.ai.analyseModel), arrangeModel: str(plCfg.ai && plCfg.ai.arrangeModel), // empty = the hub's cheap and stronger defaults
+      maxBudgetUsd: plCfg.ai && Number(plCfg.ai.maxBudgetUsd) > 0 ? Number(plCfg.ai.maxBudgetUsd) : 0,
+    },
+  },
   adoResource: str(ado.signInAppId, '499b84ac-1321-427f-aa17-267ca6975798'), // the public Azure DevOps application id used by `az account get-access-token`
   // Branches and worktrees
   branchPrefix: prefix,

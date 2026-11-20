@@ -87,6 +87,30 @@ function dump(file, probe, env) {
   c = dump(write('bot2.json', '{}'));
   check('default automated-PR patterns catch package updates but not normal work', c.bot.a === true && c.bot.b === false);
 
+  console.log('--- work planner settings');
+  c = dump(write('pl0.json', '{}'));
+  check('planner defaults: capacity 5, Monday to Friday, 5 days shown, check every 2, wake after 10, all types', JSON.stringify({ ...c.planner, ai: undefined }) === JSON.stringify({ dayCapacity: 5, workingDays: [1, 2, 3, 4, 5], horizonDays: 5, monitorEveryDays: 2, wakeAfterWorkingDays: 10, searchTypes: [] }), JSON.stringify(c.planner));
+  check('AI planning defaults: on, 30 items, discussion included, 8 comments, default models, default budget', JSON.stringify(c.planner.ai) === JSON.stringify({ enabled: true, maxItems: 30, includeDiscussion: true, commentsPerItem: 8, analyseModel: '', arrangeModel: '', maxBudgetUsd: 0 }), JSON.stringify(c.planner.ai));
+  c = dump(write('pl3.json', { planner: { ai: { enabled: false, maxItems: 10, includeDiscussion: false, commentsPerItem: 3, analyseModel: 'haiku', arrangeModel: 'opus', maxBudgetUsd: 0.2 } } }));
+  check('AI planning settings are read', c.planner.ai.enabled === false && c.planner.ai.maxItems === 10 && c.planner.ai.includeDiscussion === false && c.planner.ai.commentsPerItem === 3 && c.planner.ai.analyseModel === 'haiku' && c.planner.ai.arrangeModel === 'opus' && c.planner.ai.maxBudgetUsd === 0.2, JSON.stringify(c.planner.ai));
+  c = dump(write('pl4.json', { planner: { ai: { maxItems: 500, commentsPerItem: 0, maxBudgetUsd: -1 } } }));
+  check('out-of-range AI settings fall back to the defaults', c.planner.ai.maxItems === 30 && c.planner.ai.commentsPerItem === 8 && c.planner.ai.maxBudgetUsd === 0);
+  c = dump(write('pl0.json', '{}'));
+  c = dump(write('pl1.json', { planner: { dayCapacity: 3, workingDays: [0, 1, 2, 3, 4, 4], horizonDays: 7, monitorEveryDays: 1, wakeAfterWorkingDays: 20, searchTypes: ['Bug', 'Task'] } }));
+  check('planner settings are read (duplicate weekdays removed)', c.planner.dayCapacity === 3 && c.planner.workingDays.join() === '0,1,2,3,4' && c.planner.horizonDays === 7 && c.planner.monitorEveryDays === 1 && c.planner.wakeAfterWorkingDays === 20 && c.planner.searchTypes.join() === 'Bug,Task', JSON.stringify(c.planner));
+  c = dump(write('pl2.json', { planner: { dayCapacity: 0, horizonDays: 99, monitorEveryDays: 'x', wakeAfterWorkingDays: -4, workingDays: [] } }));
+  check('out-of-range values fall back to the defaults and an empty week is reported', c.planner.dayCapacity === 5 && c.planner.horizonDays === 5 && c.planner.monitorEveryDays === 2 && c.planner.wakeAfterWorkingDays === 10 && c.planner.workingDays.join() === '1,2,3,4,5' && c.problems.some((p) => /workingDays/.test(p)), JSON.stringify(c.problems));
+
+  console.log('--- testing settings');
+  c = dump(write('t0.json', '{}'));
+  check('testing defaults: no specs folder, no QA repository, neutral folders, default tags', c.testing.specsDir === '' && c.testing.qa.path === '' && c.testing.qa.specsDir === 'tests/flows' && c.testing.qa.cardsDir === 'docs/flow-cards' && c.testing.qa.defaultTags.join() === '@regression' && c.testing.qa.serialTimeoutMs === 180000, JSON.stringify(c.testing));
+  c = dump(write('t1.json', { testing: { specsDir: 'specs', evidenceDir: '../ev', qa: { path: 'qa', specsDir: '/tests/flows/', cardsDir: 'cards\\sub', defaultTags: ['@x'], importTo: '../../lib/', serialTimeoutMs: 5000 } } }));
+  check('testing settings are read; paths are relative to the settings file and slashes are tidied', c.testing.specsDir === path.join(root, 'specs') && c.testing.evidenceDir === path.join(path.dirname(root), 'ev') && c.testing.qa.path === path.join(root, 'qa') && c.testing.qa.specsDir === 'tests/flows' && c.testing.qa.cardsDir === 'cards/sub' && c.testing.qa.defaultTags.join() === '@x' && c.testing.qa.importTo === '../../lib/' && c.testing.qa.serialTimeoutMs === 5000, JSON.stringify(c.testing));
+  c = dump(write('t2.json', { scorecard: { localPlatform: { flowsDir: 'lp/specs', evidenceDir: 'lp/ev' } } }));
+  check('the specs and evidence folders default to the ratings\' flow test folders (also under the old key name localPlatform)', c.testing.specsDir === path.join(root, 'lp', 'specs') && c.testing.evidenceDir === path.join(root, 'lp', 'ev'));
+  c = dump(write('t3.json', { testing: { qa: { serialTimeoutMs: 5 } } }));
+  check('a silly timeout falls back to the default', c.testing.qa.serialTimeoutMs === 180000);
+
   console.log('--- running without Azure DevOps (a real server, one scanned repository)');
   const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
   const live = path.join(root, 'srv', 'myrepo'); fs.mkdirSync(live, { recursive: true });

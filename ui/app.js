@@ -36,6 +36,48 @@ function ago(iso) {
   return Math.round(s / 86400) + ' d ago';
 }
 const full = (iso) => (iso ? new Date(iso).toLocaleString() : '');
+// Work item type: a coloured badge with its own small icon, so the type never relies on colour alone.
+const TYPE_META = {
+  bug: ['Bug', 'bug', '<circle cx="12" cy="14" r="5"/><path d="M12 9V6M9 7l1.5 2M15 7l-1.5 2M7 14H4M20 14h-3M8 18l-2 2M16 18l2 2"/>'],
+  'user story': ['Story', 'story', '<path d="M6 3h12v18l-6-4-6 4z"/>'],
+  'product backlog item': ['PBI', 'story', '<path d="M6 3h12v18l-6-4-6 4z"/>'],
+  requirement: ['Req', 'story', '<path d="M6 3h12v18l-6-4-6 4z"/>'],
+  'use case': ['Use case', 'story', '<path d="M6 3h12v18l-6-4-6 4z"/>'],
+  task: ['Task', 'task', '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/>'],
+  feature: ['Feature', 'feature', '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>'],
+  epic: ['Epic', 'epic', '<path d="M13 2L5 14h6l-1 8 8-12h-6z"/>'],
+  issue: ['Issue', 'issue', '<path d="M5 21V4M5 4h12l-2 4 2 4H5"/>'],
+  impediment: ['Blocker', 'issue', '<path d="M5 21V4M5 4h12l-2 4 2 4H5"/>'],
+  'test case': ['Test', 'test', '<path d="M9 3h6M10 3v6L4 20h16L14 9V3M8 15h8"/>'],
+};
+function typeBadge(type) {
+  const raw = String(type || '').trim(); if (!raw) return '';
+  const m = TYPE_META[raw.toLowerCase()] || [raw.length > 12 ? raw.slice(0, 11) + '…' : raw, 'other', '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>'];
+  return '<span class="tbadge t-' + m[1] + '" title="' + esc(raw) + '"><svg viewBox="0 0 24 24" aria-hidden="true">' + m[2] + '</svg>' + esc(m[0]) + '</span>';
+}
+// Loading and errors, the same everywhere: shaped placeholders while data comes, one calm bar with a Retry when it cannot.
+function skeleton(kind, n) {
+  const one = {
+    cards: '<div class="tcard sk"><div class="skel" style="width:46%"></div><div class="skel" style="height:18px"></div><div class="skel" style="width:70%"></div><div class="skel" style="width:55%"></div></div>',
+    rows: '<div class="sk-row"><div class="skel" style="width:30%"></div><div class="skel" style="width:12%"></div><div class="skel" style="width:20%"></div><div class="skel" style="width:16%"></div></div>',
+    list: '<div class="sk-line"><div class="skel sk-box"></div><div style="flex:1"><div class="skel" style="width:60%;height:16px"></div><div class="skel" style="width:40%;margin-top:8px"></div></div></div>',
+    tiles: '<div class="kpi sk"><div class="skel" style="width:60%"></div><div class="skel" style="height:26px;margin-top:10px;width:40%"></div></div>',
+    chart: '<div class="sk-chart"><div class="skel" style="width:35%;height:18px"></div><div class="skel" style="height:140px;margin-top:14px"></div></div>',
+  }[kind] || '<div class="skel"></div>';
+  const count = n || { cards: 6, rows: 6, list: 5, tiles: 4, chart: 1 }[kind] || 1;
+  const wrap = { cards: 'cards', tiles: 'kpis', rows: 'sk-rows card', list: 'sk-list card', chart: '' }[kind];
+  return '<div class="sk-wrap' + (wrap ? ' ' + wrap : '') + '" aria-busy="true" aria-label="Loading">' + Array.from({ length: count }, () => one).join('') + '</div>';
+}
+// o: { kind: 'azure' | 'info' | 'generic', title, detail, auth, retry: 'name of the page loader' }
+function errorBar(o) {
+  const kind = o.kind || 'generic';
+  const title = o.title || (kind === 'azure' ? 'I can\'t reach Azure DevOps right now. Your notes, plans and worktrees are safe.' : 'Something did not load.');
+  const hint = kind === 'azure' && o.auth ? ' Open a terminal, run <span class="mono">az login</span> and finish the sign-in, then press Retry.' : '';
+  return '<div class="errbar ' + (kind === 'info' ? 'info' : 'bad') + '" role="' + (kind === 'info' ? 'status' : 'alert') + '"><span class="eb-i" aria-hidden="true"></span><div class="eb-t"><b>' + title + '</b>' + (o.detail ? ' <span class="eb-d">' + esc(o.detail) + '</span>' : '') + hint + '</div>'
+    + (o.retry ? '<button type="button" class="btn sm" data-retry="' + o.retry + '">Retry</button>' : '') + '</div>';
+}
+const RETRY = { tasks: () => load(true), plan: () => { S.plan = null; renderPlan(true); }, planner: () => loadPlanner(true), comments: () => loadComments(), stash: () => loadStashMgr(), testing: () => loadTesting(), usage: () => loadUsage(), ratings: () => loadRatings() };
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-retry]'); if (b && RETRY[b.dataset.retry]) { e.preventDefault(); RETRY[b.dataset.retry](); } });
 function badge(text, kind) { return '<span class="badge b-' + kind + '">' + esc(text) + '</span>'; }
 function statusBadges(w) {
   const out = [];
@@ -86,16 +128,16 @@ async function load(force, quiet) {
     S.wts = wt.worktrees; S.generatedAt = wt.generatedAt; S.errors = (wt.errors || []).length + (wt.missingClones || []).length;
     S.clearances = cl.clearances; S.loaded = true;
     $('banner').hidden = !S.errors;
-    if (S.errors) $('banner').textContent = S.errors + ' clone(s) could not be read. Their worktrees are missing from this list.';
+    if (S.errors) $('banner').textContent = S.errors + ' of your clones could not be read, so their worktrees are missing from this list for now.';
   } catch (e) {
     $('banner').hidden = false; $('banner').className = 'banner bad';
-    $('banner').textContent = 'Could not load data: ' + e.message;
-    if (!quiet) toast('Refresh failed: ' + e.message, { bad: true });
+    $('banner').textContent = 'I couldn\'t load your data just now: ' + e.message;
+    if (!quiet) toast('That refresh didn\'t work: ' + e.message, { bad: true });
   } finally { btn.classList.remove('spin'); btn.disabled = false; render(); }
 }
 
 /* ---------- worktrees view ---------- */
-const FILTERS = [['all', 'All'], ['attention', 'Needs attention'], ['uncommitted', 'Uncommitted'], ['unpushed', 'Not pushed'], ['pushed', 'Pushed'], ['stale', 'Stale / merged'], ['live', 'Live checkouts']];
+const FILTERS = [['all', 'All'], ['attention', 'Needs you'], ['uncommitted', 'Uncommitted'], ['unpushed', 'Not pushed'], ['pushed', 'Pushed'], ['stale', 'Stale / merged'], ['live', 'Live checkouts']];
 function matchFilter(w, f) {
   switch (f) {
     case 'attention': return w.needsAttention || w.changedSinceCleared;
@@ -137,13 +179,13 @@ function renderWorktrees() {
   if (!S.loaded) { $('rows').innerHTML = Array.from({ length: 6 }, () => '<tr>' + COLS.map(() => '<td><div class="skel"></div></td>').join('') + '</tr>').join(''); $('foot').textContent = 'Loading…'; return; }
   const shown = paginate('wts', rows, [S.filter, S.repo, S.q, S.sortKey, S.sortDir].join('|'), 'pagerW');
   $('rows').innerHTML = shown.map((w) => '<tr>'
-    + '<td><div class="cell-main">' + esc(w.branch || '(no branch)') + '</div><div class="cell-sub">' + esc(w.repoKey) + ' · ' + esc(w.layer) + '</div><div class="mono path">' + esc(w.path) + '</div></td>'
+    + '<td title="' + esc(w.path) + '"><div class="cell-main">' + esc(w.branch || '(no branch)') + '</div><div class="cell-sub">' + esc(w.repoKey) + ' · ' + esc(w.layer) + '</div></td>'
     + '<td class="nowrap">' + (w.taskId ? idLink(w.taskId) : '<span class="muted">none</span>') + '</td>'
     + '<td>' + statusBadges(w) + '</td>'
     + '<td class="nowrap">' + (w.dirtyFiles ? '<b>' + w.dirtyFiles + '</b> file' + (w.dirtyFiles > 1 ? 's' : '') : '<span class="muted">clean</span>') + '</td>'
     + '<td class="nowrap">' + (w.onOrigin ? w.ahead + ' ahead · ' + w.behind + ' behind' : '<span class="muted">not on origin</span>') + '</td>'
     + '<td class="nowrap">' + (w.idleDays == null ? '' : w.idleDays + ' d') + '</td>'
-    + '<td><span class="mono">' + esc(w.lastCommit ? w.lastCommit.hash : '') + '</span><div class="cell-sub">' + esc(w.lastCommit ? w.lastCommit.subject.slice(0, 70) : '') + '</div></td>'
+    + '<td><div class="cell-main"><span class="mono">' + esc(w.lastCommit ? w.lastCommit.hash : '') + '</span></div><div class="cell-sub">' + esc(w.lastCommit ? w.lastCommit.subject : '') + '</div></td>'
     + '<td class="r nowrap">' + (w.isMain ? '' : '<button type="button" class="btn sm primary" data-move="' + esc(w.path) + '" title="Stash live changes, merge origin/main, bring this work into the live repo">Move to live…</button> <button type="button" class="btn sm" data-clear="' + esc(w.path) + '">Clear…</button>') + '</td></tr>').join('')
     || '<tr><td colspan="8"><div class="empty"><b>No worktrees match</b>Change the filter or search.</div></td></tr>';
   $('foot').textContent = 'Showing ' + rows.length + ' of ' + (S.filter === 'live' ? S.wts.filter((w) => w.isMain).length : activeRows().length)
@@ -161,12 +203,12 @@ function renderCleared() {
   $('rows2').innerHTML = rows.map((c) => {
     const w = byKey.get(keyOf(c.path));
     let st;
-    if (c.restoredAt) st = badge('Restored', 'neu') + '<div class="cell-sub">' + esc(c.restoredBy) + ' · ' + esc(ago(c.restoredAt)) + (c.restoreNote ? '<br>' + esc(c.restoreNote) : '') + '</div>';
-    else if (!w) st = badge('Folder removed', 'ok');
-    else if (w.changedSinceCleared) st = badge('Changed since cleared', 'warn');
-    else st = badge('Cleared', 'ok') + '<div class="cell-sub">Folder still on disk</div>';
+    if (c.restoredAt) st = '<div class="badges">' + badge('Restored', 'neu') + '</div><div class="cell-sub" title="' + esc(c.restoreNote || '') + '">' + esc(c.restoredBy) + ' · ' + esc(ago(c.restoredAt)) + '</div>';
+    else if (!w) st = '<div class="badges">' + badge('Folder removed', 'ok') + '</div>';
+    else if (w.changedSinceCleared) st = '<div class="badges">' + badge('Changed since cleared', 'warn') + '</div>';
+    else st = '<div class="badges">' + badge('Cleared', 'ok') + '</div><div class="cell-sub">Folder still on disk</div>';
     return '<tr>'
-      + '<td><div class="cell-main">' + esc(c.branch || '(no branch)') + '</div><div class="cell-sub">' + esc(c.repoKey) + '</div><div class="mono path">' + esc(c.path) + '</div></td>'
+      + '<td title="' + esc(c.path) + '"><div class="cell-main">' + esc(c.branch || '(no branch)') + '</div><div class="cell-sub">' + esc(c.repoKey) + '</div></td>'
       + '<td class="nowrap">' + (c.taskId ? idLink(c.taskId) : '<span class="muted">none</span>') + '</td>'
       + '<td>' + badge(c.category, 'info') + (c.reference ? '<div class="cell-sub">Ref: ' + esc(c.reference) + '</div>' : '') + '</td>'
       + '<td style="max-width:360px">' + esc(c.reason) + '</td>'
@@ -267,7 +309,7 @@ async function loadCompleted() {
 function ensureCompleted() { if (!S.completed && !S.completedLoading && !S.completedErr) loadCompleted(); }
 const STATE_KIND = { New: 'neu', Active: 'info', Resolved: 'ok', Done: 'ok', Closed: 'neu' };
 const PROGRESS = ['In live repo', 'In live repo (uncommitted)', 'Uncommitted in worktree', 'Committed locally', 'Pushed'];
-const FILTERS_T = [['attention', 'Needs attention'], ['progress', 'In progress'], ['pr', 'PR open'], ['new', 'No code yet'], ['merged', 'Merged'], ['all', 'All']];
+const FILTERS_T = [['attention', 'Needs you'], ['progress', 'In progress'], ['pr', 'PR open'], ['new', 'No code yet'], ['merged', 'Merged'], ['all', 'All']];
 const FILTERS_R = [['waiting', 'Waiting for my vote'], ['human', 'From people'], ['all', 'Everything']];
 function matchT(t, f) {
   if (f === 'attention') return t.attention.length > 0;
@@ -289,13 +331,13 @@ const COLS_R = ['Pull request', 'Title', 'Repo', 'Author', 'Opened', 'My vote'];
 function cardHtml(t) {
   const wb = WHERE_BADGE[t.where] || [t.where, 'neu'];
   const kind = t.attention.length ? 'warn' : (wb[1] === 'bad' || wb[1] === 'info' || wb[1] === 'ok' ? wb[1] : 'neu');
-  const prChips = t.prs.map((p) => '<a class="chip" href="' + esc(p.url) + '" target="_blank" rel="noopener" title="' + esc(p.title) + '">PR ' + p.id + (p.status === 'active' ? (p.isDraft ? ' draft' : ' open') : ' merged') + '</a>').join('');
-  const repoChips = t.repos.map((r) => '<span class="chip">' + esc(r) + '</span>').join('');
-  const warns = t.attention.slice(0, 2).map((a) => '<div class="tc-warn">⚠ ' + esc(a) + '</div>').join('') + (t.attention.length > 2 ? '<div class="tc-warn">+' + (t.attention.length - 2) + ' more</div>' : '');
+  const prChips = t.prs.slice(0, 3).map((p) => '<a class="chip" href="' + esc(p.url) + '" target="_blank" rel="noopener" title="' + esc(p.title) + '">PR ' + p.id + (p.status === 'active' ? (p.isDraft ? ' draft' : ' open') : ' merged') + '</a>').join('') + (t.prs.length > 3 ? '<span class="chip" title="' + esc(t.prs.slice(3).map((p) => 'PR ' + p.id).join(', ')) + '">+' + (t.prs.length - 3) + ' PR</span>' : '');
+  const repoChips = t.repos.slice(0, 2).map((r) => '<span class="chip" title="' + esc(r) + '">' + esc(r) + '</span>').join('') + (t.repos.length > 2 ? '<span class="chip" title="' + esc(t.repos.slice(2).join(', ')) + '">+' + (t.repos.length - 2) + '</span>' : '');
+  const warns = t.attention.slice(0, 2).map((a) => '<div class="tc-warn" title="' + esc(a) + '">' + esc(a) + '</div>').join('') + (t.attention.length > 2 ? '<div class="tc-warn more">+' + (t.attention.length - 2) + ' more</div>' : '');
   return '<article class="tcard k-' + kind + '" tabindex="0" role="button" data-open="' + t.id + '" aria-label="Open task ' + t.id + ': ' + esc(t.title) + '">'
-    + '<div class="tc-top"><span class="tc-id">#' + t.id + '<span>' + esc(t.type) + '</span></span>' + badge(t.state || 'Unknown', STATE_KIND[t.state] || 'neu') + '</div>'
+    + '<div class="tc-top"><span class="tc-id">' + typeBadge(t.type || 'Unknown type') + '<span class="tc-num">#' + t.id + '</span></span>' + badge(t.state || 'Unknown', STATE_KIND[t.state] || 'neu') + '</div>'
     + '<div class="tc-title">' + esc(t.title) + '</div>'
-    + '<div class="tc-row">' + badge(wb[0], wb[1]) + (t.worktrees.length ? '<span class="muted">' + t.worktrees.length + ' checkout' + (t.worktrees.length > 1 ? 's' : '') + '</span>' : '') + '</div>'
+    + '<div class="tc-row">' + badge(wb[0], wb[1]) + (typeof cwBadge === 'function' ? cwBadge(t.id) : '') + (t.worktrees.length ? '<span class="muted">' + t.worktrees.length + ' checkout' + (t.worktrees.length > 1 ? 's' : '') + '</span>' : '') + '</div>'
     + warns
     + ((repoChips || prChips) ? '<div class="chips">' + repoChips + prChips + '</div>' : '')
     + '<div class="tc-foot"><span title="' + esc(full(t.lastActivity)) + '">' + (t.lastActivity ? 'Updated ' + esc(ago(t.lastActivity)) : 'No activity') + '</span>'
@@ -308,9 +350,9 @@ function renderTasks() {
   const note = $('adoNote');
   note.hidden = !(D && !D.ado.ok);
   if (D && !D.ado.ok) {
-    note.className = 'banner bad';
-    note.innerHTML = D.ado.notConfigured ? '<b>Azure DevOps is not set up.</b> Add <span class="mono">organization</span> and <span class="mono">project</span> to hub.config.json (see the README), then restart the hub. Until then the board shows local git data only; everything else works.'
-      : '<b>Azure DevOps data is unavailable.</b> ' + esc(D.ado.error) + (D.ado.auth ? ' To fix it, open a terminal, run <span class="mono">az login</span> and finish the browser sign-in, then press Refresh here.' : ' The board below shows local git data only. Fix it, then press Refresh.');
+    note.className = '';
+    note.innerHTML = D.ado.notConfigured ? errorBar({ kind: 'info', title: 'Azure DevOps is not set up.', detail: 'Add organization and project to hub.config.json (see the README), then restart the hub. Until then the board shows local git data only; everything else works.' })
+      : errorBar({ kind: 'azure', detail: D.ado.error, auth: D.ado.auth, retry: 'tasks' });
   }
   $('tabT').innerHTML = [['work', 'My work'], ['reviews', 'Reviews']].map((x) => '<button type="button" data-tab="' + x[0] + '" aria-pressed="' + (S.tab === x[0]) + '">' + x[1] + '</button>').join('');
   const completedView = work && S.status === 'completed';
@@ -324,13 +366,13 @@ function renderTasks() {
   const q = S.qT.trim().toLowerCase();
   if (!D) {
     $('kpisT').innerHTML = '';
-    $('cardsT').innerHTML = Array.from({ length: 6 }, () => '<div class="tcard"><div class="skel" style="width:40%"></div><div class="skel"></div><div class="skel" style="width:70%"></div><div class="skel" style="width:55%"></div></div>').join('');
+    $('cardsT').innerHTML = skeleton('cards', 6).replace('class="sk-wrap cards"', 'class="sk-wrap"');
     $('headT').innerHTML = ''; $('rowsT').innerHTML = '';
     $('footT').textContent = 'Loading from Azure DevOps…'; return;
   }
   const waiting = reviews.filter((r) => !r.isBot && !r.voted).length;
   $('kpisT').innerHTML = [['New', tasks.filter((t) => t.state === 'New').length, 'neu'], ['Active', tasks.filter((t) => t.state === 'Active').length, 'info'],
-    ['Needs attention', tasks.filter((t) => t.attention.length).length, 'warn'], ['PRs open', tasks.filter((t) => t.where.indexOf('PR open') === 0).length, 'info'],
+    ['Needs you', tasks.filter((t) => t.attention.length).length, 'warn'], ['PRs open', tasks.filter((t) => t.where.indexOf('PR open') === 0).length, 'info'],
     ['Reviews waiting for me', waiting, waiting ? 'bad' : 'ok']].map((x) => '<div class="kpi ' + x[2] + '"><small>' + x[0] + '</small><b>' + x[1] + '</b></div>').join('');
 
   if (work) {
@@ -405,7 +447,7 @@ async function openTask(id) {
     const data = await api('/api/tasks/' + id);
     if (!S.dr || S.dr.id !== id) return;
     S.dr.data = data; renderDrawer();
-  } catch (e) { $('drTitle').textContent = 'Could not open task #' + id; $('drBody').innerHTML = '<div class="note bad">' + esc(e.message) + '</div>'; }
+  } catch (e) { $('drTitle').textContent = 'I couldn\'t open task #' + id; $('drBody').innerHTML = '<div class="note bad">' + esc(e.message) + '</div>'; }
 }
 async function reloadDrawer() {
   const id = S.dr.id;
@@ -428,12 +470,12 @@ function noteHtml(n) {
 function renderDrawer() {
   const { id, data } = S.dr; const d = data.detail; const t = data.task;
   const keep = $('drBody').scrollTop;
-  $('drKicker').textContent = ((d && d.type) || (t && t.type) || 'Task') + ' #' + id;
+  $('drKicker').innerHTML = typeBadge((d && d.type) || (t && t.type) || 'Task') + ' <span class="tc-num">#' + id + '</span>';
   $('drTitle').textContent = (d && d.title) || (t && t.title) || 'Task #' + id;
   $('drBoards').href = (d && d.url) || ADO + id; $('drBoards').hidden = !ADO && !(d && d.url);
   const sections = data.sections; const draft = drafts[id] || { section: sections[0], body: '' };
   let h = '';
-  if (data.error) h += '<div class="note warn"><b>Could not load the description from Azure DevOps.</b> ' + esc(data.error) + ' Your notes below still work.</div>';
+  if (data.error) h += '<div class="note warn"><b>I couldn\'t load the description from Azure DevOps.</b> ' + esc(data.error) + ' Your notes below still work.</div>';
   if (d) {
     h += '<div class="meta">' + metaItem('State', badge(d.state, STATE_KIND[d.state] || 'neu') + (d.reason ? ' <span class="muted">' + esc(d.reason) + '</span>' : ''))
       + metaItem('Assigned to', esc(d.assignedTo || 'Unassigned')) + metaItem('Priority', d.priority ? 'P' + d.priority : '') + metaItem('Severity', esc(d.severity)) + metaItem('Story points', d.points ? esc(d.points) : '')
@@ -445,7 +487,7 @@ function renderDrawer() {
   if (t) {
     const wb = WHERE_BADGE[t.where] || [t.where, 'neu'];
     h += '<div class="sec"><h3>Code and pull requests</h3><div class="tc-row">' + badge(wb[0], wb[1]) + '</div>'
-      + t.attention.map((a) => '<div class="tc-warn" style="margin-top:6px">⚠ ' + esc(a) + '</div>').join('')
+      + t.attention.map((a) => '<div class="tc-warn" style="margin-top:6px">' + esc(a) + '</div>').join('')
       + t.worktrees.map((w) => '<div class="wt-row"><div><b>' + esc(w.branch || '(no branch)') + '</b> <span class="muted">' + esc(w.repoKey) + ' · ' + (w.isMain ? 'live checkout' : 'worktree') + '</span><div class="mono path">' + esc(w.path) + '</div></div>' + statusBadges(w) + '</div>').join('')
       + t.prs.map((p) => '<div class="pr-row"><a href="' + esc(p.url) + '" target="_blank" rel="noopener">PR ' + p.id + '</a>' + badge(p.status === 'active' ? (p.isDraft ? 'Draft' : 'Open') : 'Merged', p.status === 'active' ? 'info' : 'ok')
         + '<span class="muted">' + esc(p.repo) + '</span>' + (p.status === 'active' && p.unresolved ? '<span class="muted">' + p.unresolved + ' open thread(s)</span>' : '')
@@ -463,6 +505,7 @@ function renderDrawer() {
     + '<div class="field"><textarea name="body" maxlength="8000" placeholder="Write your analysis, what you found, a decision, an open question, or the next step…" aria-label="New note">' + esc(draft.body) + '</textarea></div>'
     + '<div class="row"><span class="muted" id="noteCnt">' + draft.body.length + ' / 8000</span><button type="submit" class="btn primary">Add note</button></div></form>'
     + '<div class="note-list">' + (notes.map(noteHtml).join('') || '<div class="muted">No notes yet. What you add here is kept for every session that uses this hub.</div>') + '</div></div>';
+  if (typeof cwDrawerHtml === 'function') h += cwDrawerHtml(data, id);
   h += '<div class="sec" id="drSessions"><h3>Claude sessions on this task</h3><div class="muted">Looking…</div></div>';
   $('drBody').innerHTML = h;
   loadSessions(id);
@@ -478,7 +521,12 @@ function renderDrawer() {
     if (!any) { const n = document.createElement('div'); n.className = 'hint-box'; n.textContent = 'This work item has no description in Azure DevOps.'; $('drBody').querySelector('.hint-box').before(n); }
   }
   $('drBody').scrollTop = keep;
+  const st = (d && d.state) || (t && t.state) || ''; const who = (d && d.assignedTo) || ''; const pri = (d && d.priority) || (t && t.priority) || null;
+  $('drMeta').innerHTML = (st ? badge(st, STATE_KIND[st] || 'neu') : '') + (pri ? '<span class="chip">P' + esc(pri) + '</span>' : '') + (who ? '<span class="dr-who" title="Assigned to ' + esc(who) + '">' + esc(who) + '</span>' : '<span class="dr-who muted">Unassigned</span>');
+  const cw = data.comments; const watching = !!(cw && cw.watching);
+  $('drFoot').innerHTML = '<button type="button" class="btn sm" data-dr="note">Add a note</button>' + (cw ? '<button type="button" class="btn sm" data-cw="ask" data-id="' + id + '" data-title="">I asked someone…</button><button type="button" class="btn sm" data-cw="watch" data-id="' + id + '" data-on="' + (watching ? '0' : '1') + '">' + (watching ? 'Stop watching' : 'Watch for comments') + '</button>' : '');
 }
+$('drFoot').addEventListener('click', (e) => { if (e.target.closest('[data-dr=note]')) { const ta = $('drBody').querySelector('#noteForm textarea'); if (ta) { ta.scrollIntoView({ block: 'center' }); ta.focus(); } } });
 async function loadSessions(id) {
   let r;
   try { r = await api('/api/tasks/' + id + '/sessions'); } catch (e) { r = { error: e.message }; }
@@ -604,14 +652,18 @@ function renderMoves() {
   $('rows3').innerHTML = S.moves.map((m) => {
     const b = MOVE_BADGE[m.status] || [m.status, 'neu'];
     return '<tr><td class="nowrap" title="' + esc(full(m.startedAt)) + '">' + esc(ago(m.startedAt)) + '<div class="cell-sub">' + esc(m.startedBy) + '</div></td>'
-      + '<td><div class="cell-main">' + esc(m.branch) + '</div><div class="cell-sub">' + esc(m.repoKey) + (m.prevLiveBranch ? ' · live was on ' + esc(m.prevLiveBranch) : '') + '</div><div class="mono path">' + esc(m.wtPath) + '<br>to ' + esc(m.livePath) + '</div></td>'
-      + '<td>' + badge(b[0], b[1]) + '</td>'
-      + '<td style="max-width:560px">' + esc(m.summary || 'In progress…') + '<details><summary>Steps</summary>' + stepsHtml(m) + '</details>'
-      + (m.patchPath ? '<div class="cell-sub">Patch: <span class="mono">' + esc(m.patchPath) + '</span></div>' : '') + '</td></tr>';
-  }).join('') || '<tr><td colspan="4"><div class="empty"><b>No moves yet</b>Use "Move to live…" on a worktree to bring its work into the live repo.</div></td></tr>';
+      + '<td title="' + esc(m.wtPath + ' to ' + m.livePath) + '"><div class="cell-main">' + esc(m.branch) + '</div><div class="cell-sub">' + esc(m.repoKey) + (m.prevLiveBranch ? ' · live was on ' + esc(m.prevLiveBranch) : '') + '</div></td>'
+      + '<td><div class="badges">' + badge(b[0], b[1]) + '</div></td>'
+      + '<td class="col-note" title="' + esc(m.summary || '') + '">' + esc(m.summary || 'In progress…') + '</td>'
+      + '<td class="r"><button type="button" class="btn sm" data-move-steps="' + m.id + '">Steps…</button></td></tr>';
+  }).join('') || '<tr><td colspan="5"><div class="empty"><b>No moves yet</b>Use "Move to live…" on a worktree to bring its work into the live repo.</div></td></tr>';
   $('foot3').textContent = S.moves.length + ' move' + (S.moves.length === 1 ? '' : 's') + ' (latest 200). Each move keeps its patch so nothing is lost if a step fails.';
 }
 
+function openMoveSteps(id) {
+  const m = S.moves.find((x) => x.id === id); if (!m) return;
+  openDialog({ title: 'Steps for ' + m.branch, ok: 'Close', body: '<div class="muted">' + esc(m.wtPath) + '<br>to ' + esc(m.livePath) + '</div>' + stepsHtml(m) + (m.patchPath ? '<div class="field"><label>Patch</label><div class="copy">' + esc(m.patchPath) + '</div></div>' : ''), submit: async () => {} });
+}
 const stashNeeds = (s) => s.state === 'stashed' || s.state === 'unknown';
 function renderStashes() { if (typeof renderStashMgr === 'function') renderStashMgr(); }
 function openHandled(id) {
@@ -667,7 +719,7 @@ function composeHtml(hasItems) {
   const busy = S.pp.busy;
   return '<div class="card compose"><h3>' + (hasItems ? 'Add to today\'s plan' : 'What is your plan for today?') + '</h3>'
     + '<div class="muted">Write it the way you would say it. Mention work item numbers like #5945 or "PR 9820" if you know them. Lines with no work item get a draft title and description for your lead.</div>'
-    + '<textarea id="planText" maxlength="4000" placeholder="e.g. Fix the address autolist bug (5945), review Shiva\'s PR 9820, continue the customer portal menu work, 11am standup, and add retry handling for the quotes service">' + esc(S.pp.text) + '</textarea>'
+    + '<textarea id="planText" maxlength="4000" placeholder="e.g. Fix the login timeout bug (1234), review Sam\'s PR 5678, continue the billing page work, 11am standup, and add retry handling for the orders service">' + esc(S.pp.text) + '</textarea>'
     + (S.pp.err ? '<div class="note bad" style="margin-bottom:10px">' + esc(S.pp.err) + '</div>' : '')
     + '<div class="row"><button type="button" class="btn primary" data-pa="build"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Reading your plan… (5 to 15 seconds)' : 'Build my checklist') + '</button>'
     + '<button type="button" class="btn" data-pa="rules"' + (busy ? ' disabled' : '') + ' title="No AI: matches by work item number and keywords">Match without AI</button>'
@@ -756,30 +808,39 @@ function checklistHtml(P) {
   const drafts = items.filter((i) => i.draft && !i.task && i.draft.state === 'drafted').length;
   const rows = items.map((i) => {
     const t = i.task; const cls = i.status === 'done' ? ' done' : (i.status === 'skipped' ? ' skipped' : '');
-    const edit = S.pp.editing === i.id;
-    return '<div class="crow' + cls + '" data-id="' + i.id + '"><input type="checkbox" data-pa="toggle" data-id="' + i.id + '"' + (i.status === 'done' ? ' checked' : '') + (i.status === 'skipped' ? ' disabled' : '') + ' aria-label="Done">'
-      + '<div><div class="tx">' + (edit ? '<input class="e-text" value="' + esc(i.text) + '" maxlength="200" aria-label="Edit line">' : esc(i.text)) + '</div><div class="cmeta">'
-      + badge(cap1(i.kind), 'neu')
-      + (t ? '<span class="chip tlink" role="button" tabindex="0" data-open="' + t.id + '" title="Open details">#' + t.id + (t.title ? ' ' + esc(t.title.slice(0, 70)) : '') + '</span>' + (t.state ? badge(t.state, STATE_KIND[t.state] || 'neu') : '') + (t.where && WHERE_BADGE[t.where] ? badge(WHERE_BADGE[t.where][0], WHERE_BADGE[t.where][1]) : '') + (t.noteCount ? '<span class="notepill">' + t.noteCount + ' note' + (t.noteCount > 1 ? 's' : '') + '</span>' : '') : '')
-      + draftChip(i)
-      + (i.looksDone ? badge('Looks done: ' + ((t && t.where === 'Merged') ? 'PR merged' : 'work item is ' + (t && t.state)), 'ok') + '<button type="button" class="linkbtn" data-pa="toggle" data-id="' + i.id + '" data-v="done">Mark done</button>' : '')
+    const edit = S.pp.editing === i.id; const open = !!(S.pp.open && S.pp.open.has(i.id));
+    const wts = i.worktrees || []; const where = t && t.where && WHERE_BADGE[t.where] ? badge(WHERE_BADGE[t.where][0], WHERE_BADGE[t.where][1]) : '';
+    const note = t && t.noteCount ? '<span class="notepill">' + t.noteCount + ' note' + (t.noteCount > 1 ? 's' : '') + '</span>' : '';
+    const hasMore = !!(where || note || (i.kind === 'task' && i.status !== 'skipped'));
+    const flags = draftChip(i)
+      + (i.looksDone ? badge('Looks done: ' + ((t && t.where === 'Merged') ? 'PR merged' : 'work item is ' + (t && t.state)), 'ok') : '')
       + (i.status === 'skipped' ? '<span class="muted">Dropped' + (i.skipReason ? ': ' + esc(i.skipReason) : '') + '</span>' : '')
-      + (i.carriedFrom ? '<span class="muted">carried over</span>' : '') + '</div>'
-      + (i.kind === 'task' && i.status !== 'skipped' ? '<div class="cmeta"><span class="wtlab">Code</span>' + ((i.worktrees || []).length ? i.worktrees.map((w) => wtChipHtml(w, 'data-pa="wtunlink" data-id="' + i.id + '" data-p="' + esc(w.path) + '"')).join('') : '<span class="muted">No worktree linked</span>') + '</div>' : '') + '</div>'
-      + '<div class="acts">' + (edit ? '<button type="button" class="linkbtn" data-pa="editsave" data-id="' + i.id + '">Save</button><button type="button" class="linkbtn" data-pa="editcancel">Cancel</button>'
-        : (i.status === 'todo' ? '<button type="button" class="linkbtn" data-pa="toggle" data-id="' + i.id + '" data-v="done">Mark done</button>' : (i.status === 'done' ? '<button type="button" class="linkbtn" data-pa="toggle" data-id="' + i.id + '" data-v="todo">Reopen</button>' : ''))
-        + '<button type="button" class="linkbtn" data-pa="edit" data-id="' + i.id + '">Edit</button>'
-        + (i.kind === 'task' ? '<button type="button" class="linkbtn" data-pa="wtlink" data-id="' + i.id + '">Link worktree</button>' : '')
-        + (i.kind === 'task' && !t ? '<button type="button" class="linkbtn" data-pa="draft" data-id="' + i.id + '">' + (i.draft ? 'Draft' : 'Draft for lead') + '</button><button type="button" class="linkbtn" data-pa="attachSaved" data-id="' + i.id + '">Attach work item</button>' : '')
-        + (i.status === 'skipped' ? '<button type="button" class="linkbtn" data-pa="restore" data-id="' + i.id + '">Restore</button>' : (i.status === 'todo' ? '<button type="button" class="linkbtn" data-pa="skip" data-id="' + i.id + '">Drop</button>' : ''))
-        + '<button type="button" class="linkbtn danger" data-pa="del" data-id="' + i.id + '">Delete</button>') + '</div></div>';
+      + (i.carriedFrom ? '<span class="muted">carried over</span>' : '') + (t && typeof cwBadge === 'function' ? cwBadge(t.id) : '');
+    const code = i.kind === 'task' && i.status !== 'skipped' ? '<div class="cmeta"><span class="wtlab">Code</span>' + (wts.length ? wts.slice(0, 2).map((w) => wtChipHtml(w, 'data-pa="wtunlink" data-id="' + i.id + '" data-p="' + esc(w.path) + '"')).join('') + (wts.length > 2 ? '<span class="chip" title="' + esc(wts.slice(2).map((w) => w.branch).join(', ')) + '">+' + (wts.length - 2) + ' more</span>' : '') : '<span class="muted">No worktree linked</span>') + '</div>' : '';
+    const main = i.status === 'todo' ? '<button type="button" class="btn sm' + (i.looksDone ? ' primary' : '') + '" data-pa="toggle" data-id="' + i.id + '" data-v="done">Mark done</button>' : (i.status === 'done' ? '<button type="button" class="linkbtn" data-pa="toggle" data-id="' + i.id + '" data-v="todo">Reopen</button>' : (i.status === 'skipped' ? '<button type="button" class="linkbtn" data-pa="restore" data-id="' + i.id + '">Restore</button>' : ''));
+    const more = '<details class="menu-pop"><summary class="linkbtn" aria-label="More actions for this line">More</summary><div class="pop" role="menu">'
+      + '<button type="button" class="linkbtn" data-pa="edit" data-id="' + i.id + '">Edit text</button>'
+      + (i.kind === 'task' ? '<button type="button" class="linkbtn" data-pa="wtlink" data-id="' + i.id + '">Link worktree</button>' : '')
+      + (i.kind === 'task' && !t ? '<button type="button" class="linkbtn" data-pa="draft" data-id="' + i.id + '">' + (i.draft ? 'Draft' : 'Draft for lead') + '</button><button type="button" class="linkbtn" data-pa="attachSaved" data-id="' + i.id + '">Attach work item</button>' : '')
+      + (i.status === 'todo' ? '<button type="button" class="linkbtn" data-pa="skip" data-id="' + i.id + '">Drop this line</button>' : '')
+      + '<button type="button" class="linkbtn danger" data-pa="del" data-id="' + i.id + '">Delete</button></div></details>';
+    return '<div class="crow' + cls + '" data-id="' + i.id + '" tabindex="0"><input type="checkbox" data-pa="toggle" data-id="' + i.id + '"' + (i.status === 'done' ? ' checked' : '') + (i.status === 'skipped' ? ' disabled' : '') + ' aria-label="Done">'
+      + '<div class="cr-main"><div class="tx">' + (edit ? '<input class="e-text" value="' + esc(i.text) + '" maxlength="200" aria-label="Edit line">' : esc(i.text)) + '</div>'
+      + '<div class="cmeta">' + (t && t.type ? typeBadge(t.type) : badge(cap1(i.kind), 'neu'))
+      + (t ? '<span class="chip tlink" role="button" tabindex="0" data-open="' + t.id + '" title="' + esc('#' + t.id + ' ' + (t.title || '')) + '">#' + t.id + (t.title ? ' ' + esc(t.title.slice(0, 40)) : '') + '</span>' + (t.state ? badge(t.state, STATE_KIND[t.state] || 'neu') : '') : '')
+      + flags + (hasMore ? '<button type="button" class="linkbtn cr-det" data-pa="det" data-id="' + i.id + '" aria-expanded="' + open + '">' + (open ? 'Hide details' : 'Details') + '</button>' : '') + '</div>'
+      + (open ? '<div class="cr-more">' + (where || note ? '<div class="cmeta">' + where + note + '</div>' : '') + code + '</div>' : '') + '</div>'
+      + '<div class="acts">' + (edit ? '<button type="button" class="btn sm primary" data-pa="editsave" data-id="' + i.id + '">Save</button><button type="button" class="linkbtn" data-pa="editcancel">Cancel</button>' : main + more) + '</div></div>';
   }).join('');
-  return '<div><div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px"><b>' + done + ' of ' + live.length + ' done</b><span>'
-    + (drafts ? '<button type="button" class="btn sm" data-pa="leadmsg">Copy ' + drafts + ' draft' + (drafts > 1 ? 's' : '') + ' as one message for my lead</button> ' : '')
-    + '<button type="button" class="btn sm primary" data-pa="close">Close the day</button></span></div>'
-    + '<div class="progress"><span style="width:' + pct + '%"></span></div><div class="card">' + rows
-    + '<div class="addline"><input id="addLine" placeholder="Add a line… (type #5945 to link a work item)" maxlength="200" aria-label="Add a line"><button type="button" class="btn" data-pa="addline">Add</button></div></div></div>';
+  const withCode = live.filter((i) => (i.worktrees || []).some((w) => w.dirtyFiles)).length; const carried = live.filter((i) => i.carriedFrom).length;
+  const summary = [done + ' of ' + live.length + ' done', withCode ? withCode + ' with code in progress' : '', carried ? carried + ' carried over' : ''].filter(Boolean).join(' · ');
+  return '<div class="plan-head"><div><b class="plan-sum">' + (live.length && done === live.length ? 'All ' + done + ' done. Nicely done!' : esc(summary)) + '</b><div class="muted plan-sub">' + (pct === 100 ? 'Close the day when you are ready.' : pct >= 50 ? 'More than halfway there.' : done ? 'A good start.' : 'Pick one thing and begin.') + '</div></div><div class="plan-act">'
+    + (drafts ? '<button type="button" class="btn sm" data-pa="leadmsg">Copy ' + drafts + ' draft' + (drafts > 1 ? 's' : '') + ' for my lead</button>' : '')
+    + '<button type="button" class="btn sm primary" data-pa="close">Close the day</button></div></div>'
+    + '<div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '" aria-label="Plan progress"><span style="width:' + pct + '%"></span><em>' + pct + '%</em></div><div class="card plan-card">' + rows
+    + '<div class="addline"><input id="addLine" placeholder="Add a line… (type #5945 to link a work item)" maxlength="200" aria-label="Add a line"><button type="button" class="btn primary" data-pa="addline">Add</button></div></div>';
 }
+
 function scoreHtml(s) {
   const cls = s.score >= 75 ? '' : (s.score >= 50 ? ' mid' : ' low');
   return '<div class="card score"><div class="score-n' + cls + '" title="60% adherence + 30% work item coverage + 10% no carry-over">' + s.score + '</div><div><b>Day score</b><div class="muted">' + s.done + ' of ' + (s.planned - s.dropped) + ' finished'
@@ -796,12 +857,12 @@ function recentHtml(P) {
 
 function renderPlan(force) {
   const body = $('planBody');
-  if (!S.plan) { body.innerHTML = '<div class="skel" style="height:44px;margin-bottom:12px"></div><div class="skel" style="height:160px"></div>'; loadPlan(S.pd); if (!S.ai) loadAi(); return; }
+  if (!S.plan) { body.innerHTML = skeleton('list', 5); loadPlan(S.pd); if (!S.ai) loadAi(); return; }
   if (!S.ai) loadAi();
   const a = document.activeElement; // do not wipe what you are typing when the page refreshes in the background
   if (!force && a && body.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
   const P = S.plan;
-  if (P.error) { body.innerHTML = '<div class="note bad">Could not load the plan: ' + esc(P.error) + ' <button type="button" class="btn sm" data-pa="reload">Try again</button></div>'; return; }
+  if (P.error) { body.innerHTML = errorBar({ title: 'The plan didn\'t load.', detail: P.error, retry: 'plan' }); return; }
   let h = dateBarHtml(P) + aiLineHtml();
   if (S.pp.items) h += reviewHtml();
   else if (!P.items.length || S.pp.composing) h += composeHtml(P.items.length > 0);
@@ -891,6 +952,7 @@ async function planAct(a, el) {
       try { await api('/api/plan/items/' + id + '/update', { body: { status: next } }); await reload(); } catch (e) { toast(e.message, { bad: true }); if (cur) renderPlan(true); }
       return;
     }
+    case 'det': { const o = S.pp.open || (S.pp.open = new Set()); if (o.has(id)) o.delete(id); else o.add(id); renderPlan(true); return; }
     case 'edit': S.pp.editing = id; renderPlan(true); { const inp = $('planBody').querySelector('.e-text'); if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); } } return;
     case 'editcancel': S.pp.editing = null; return renderPlan(true);
     case 'editsave': { const v = ($('planBody').querySelector('.e-text') || {}).value;
@@ -976,17 +1038,21 @@ function copyLeadMessage() {
 function openCloseDay() {
   const P = S.plan; const todo = P.items.filter((i) => i.status === 'todo');
   const body = todo.length
-    ? '<div class="muted">Choose what happens to each unfinished line.</div>' + todo.map((i) => '<div class="cl-row"><div>' + esc(i.text) + '</div><select name="a-' + i.id + '" data-cid="' + i.id + '"><option value="carry">Carry to tomorrow</option><option value="drop">Drop it</option><option value="keep">Leave it</option></select><input name="r-' + i.id + '" maxlength="300" placeholder="Why drop it?" hidden></div>').join('')
+    ? '<div class="muted">Choose what happens to each unfinished line.</div>' + todo.map((i) => '<div class="cl-row"><div class="cl-t">' + esc(i.text) + '</div><div class="seg cl-seg" role="radiogroup" aria-label="What to do with this line">' + [['carry', 'Carry on'], ['drop', 'Drop'], ['keep', 'Leave']].map((o, k) => '<label><input type="radio" name="a-' + i.id + '" value="' + o[0] + '" data-cid="' + i.id + '"' + (k === 0 ? ' checked' : '') + '><span>' + o[1] + '</span></label>').join('') + '</div><input name="r-' + i.id + '" maxlength="300" placeholder="Why drop it? (a short reason)" hidden></div>').join('') + '<div class="cl-sum muted" id="clSum"></div>'
     : '<div class="note ok">Everything is done or dropped. Close the day to see your score.</div>';
   openDialog({ title: 'Close the day', ok: 'Close the day', body,
-    onOpen: () => { $('dlgBody').querySelectorAll('select[data-cid]').forEach((s) => s.addEventListener('change', () => { const r = $('dlgBody').querySelector('[name="r-' + s.dataset.cid + '"]'); r.hidden = s.value !== 'drop'; if (!r.hidden) r.focus(); })); },
+    onOpen: () => {
+      const sum = () => { const c = { carry: 0, drop: 0, keep: 0 }; $('dlgBody').querySelectorAll('input[type=radio][data-cid]:checked').forEach((x) => { c[x.value]++; }); const el = $('clSum'); if (el) el.textContent = [c.carry ? c.carry + ' to carry on' : '', c.drop ? c.drop + ' to drop' : '', c.keep ? c.keep + ' left as they are' : ''].filter(Boolean).join(' · '); };
+      $('dlgBody').querySelectorAll('input[type=radio][data-cid]').forEach((s) => s.addEventListener('change', () => { const r = $('dlgBody').querySelector('[name="r-' + s.dataset.cid + '"]'); r.hidden = $('dlgBody').querySelector('input[name="a-' + s.dataset.cid + '"]:checked').value !== 'drop'; if (!r.hidden) r.focus(); sum(); }));
+      sum();
+    },
     submit: async (v) => {
       const carry = []; const drop = [];
       for (const i of todo) { const a = v['a-' + i.id]; if (a === 'carry') carry.push(i.id); else if (a === 'drop') { const r = (v['r-' + i.id] || '').trim(); if (!r) { const e = new Error('Give a reason for each dropped line'); e.fields = { ['r-' + i.id]: 'Give a reason.' }; throw e; } drop.push({ id: i.id, reason: r }); } }
       const res = await api('/api/plan/close', { body: { date: P.date, carry, drop } });
       S.plan = res; S.pp.items = null; render();
       const s = res.score;
-      $('dlgTitle').textContent = 'Day closed: score ' + s.score;
+      $('dlgTitle').textContent = 'Day closed. ' + s.done + ' of ' + (s.planned - s.dropped) + ' finished';
       $('dlgBody').innerHTML = '<div class="sum"><b>' + s.done + ' of ' + (s.planned - s.dropped) + ' finished</b><div class="muted">Adherence ' + s.adherence + '% · work item coverage ' + s.coverage + '% · ' + s.carried + ' carried over · ' + s.missingWorkItems + ' line(s) without a work item</div></div>'
         + (res.carriedTo ? '<div class="note">Carried lines are on the plan for ' + esc(dateLabel(res.carriedTo)) + '.</div>' : '')
         + (s.unplanned.length ? '<div class="note warn">You also worked on ' + s.unplanned.length + ' thing' + (s.unplanned.length > 1 ? 's' : '') + ' that were not in the plan: ' + s.unplanned.map((u) => '#' + u.id).join(', ') + '</div>' : '');
@@ -1037,7 +1103,7 @@ function renderSafety() {
     const bk = h.backups; const dbOk = h.db.quickCheck === 'ok';
     if (!dbOk) { cls = 'bad'; txt = 'Database needs attention'; }
     else if (!bk.newest) { cls = 'warn'; txt = 'No backup yet'; }
-    else if (bk.lastError) { cls = 'bad'; txt = 'Backup failed'; }
+    else if (bk.lastError) { cls = 'bad'; txt = 'Backup didn\'t finish'; }
     else { cls = bk.ok ? 'ok' : 'warn'; txt = 'Backed up ' + ago(bk.newest.at); }
   }
   b.className = 'safety ' + cls; $('safetyText').textContent = txt;
@@ -1087,15 +1153,15 @@ function featureChips(a, ad) {
 }
 function renderRatings() {
   const R = S.ratings; const body = $('ratingsBody');
-  if (!R) { body.innerHTML = '<div class="skel" style="height:80px;margin-bottom:12px"></div><div class="skel" style="height:240px"></div>'; loadRatings(); return; }
-  if (R.error) { body.innerHTML = '<div class="note bad">Could not load the ratings: ' + esc(R.error) + '</div>'; return; }
+  if (!R) { body.innerHTML = skeleton('chart', 2); loadRatings(); return; }
+  if (R.error) { body.innerHTML = '<div class="note bad">The ratings didn\'t load: ' + esc(R.error) + '</div>'; return; }
   const res = R.result; const running = R.status === 'running';
   const head = '<div class="datebar"><span class="muted">' + (res ? 'Calculated ' + esc(ago(res.generatedAt)) + '. Measured from Azure DevOps (read-only), local git, the usage log, the learnings store and this hub. No AI model is used.' : 'Not calculated yet.') + '</span><span style="flex:1"></span>'
     + '<button type="button" class="btn primary" data-ra="run"' + (running ? ' disabled' : '') + '>' + (running ? esc(R.step || 'Calculating') + '…' : (res ? 'Recalculate' : 'Calculate now')) + '</button></div>'
     + (R.error ? '' : '') + (S.ratings.error ? '' : '');
   if (!res) { body.innerHTML = head + '<div class="empty card"><b>' + (running ? 'Calculating…' : 'No ratings yet') + '</b>' + (running ? esc(R.step || '') : 'The first calculation reads your pull requests, builds and review threads, takes about 10 seconds, and changes nothing.') + '</div>' + (R.error ? '<div class="note bad">' + esc(R.error) + '</div>' : ''); return; }
   const o = res.overall;
-  let h = head + (res.notes || []).map((n) => '<div class="note warn" style="margin-bottom:12px">' + esc(n) + '</div>').join('');
+  let h = head + '<div id="vizRatings"></div>' + (res.notes || []).map((n) => '<div class="note warn" style="margin-bottom:12px">' + esc(n) + '</div>').join('');
   h += '<div class="card" style="padding:16px 18px;margin-bottom:16px"><div class="area-h"><div><h3 style="margin:0">Overall</h3><div class="muted">Mean of the areas. Compared like for like: only areas that have both your own earlier rating and a measured baseline.</div></div>'
     + '<div class="scorechips">' + scChip('My review', o.originalComparable) + scChip('Baseline', o.baseline, o.originalComparable) + scChip('Last 14 days', o.recentComparable, o.baseline) + '</div></div>'
     + '<div class="muted" style="margin-top:6px">Same areas in all three numbers. Areas with no history (workflow design is measured now only, planning has no baseline) are left out of this comparison, so the change is real, not a change in what is averaged. Including them, today\'s mean is ' + scTxt(o.recent) + '.</div>'
@@ -1128,6 +1194,7 @@ function renderRatings() {
   h += '<div class="foot-plain"><b>How to read this.</b> Each measure is scored 0 to 10 by a straight line between a worst and a best value (editable in <span class="mono">scorecard.config.json</span>); an area is the weighted mean of its measures. Thresholds were set so the baseline lands near your earlier ratings (when you set any), so compare trends rather than absolute numbers. '
     + 'Samples are small (' + res.inputs.prs + ' pull requests, ' + res.inputs.bugsWithPrs + ' bugs with PRs, ' + res.inputs.commitsScanned + ' commits, ' + res.inputs.sessions + ' sessions): treat movements as hints, not proof. A rise after a hub feature was introduced is correlation, not cause. Measures marked "measured now only" have no history. Hub measures have no baseline because the hub did not exist yet.</div>';
   body.innerHTML = h;
+  if (typeof vizRatings === 'function') { try { vizRatings($('vizRatings'), res); } catch (e) { $('vizRatings').textContent = ''; } }
 }
 $('ratingsBody').addEventListener('click', (e) => { const b = e.target.closest('[data-ra]'); if (b && b.dataset.ra === 'run') runRatings(); });
 
@@ -1141,11 +1208,12 @@ async function loadUsage() {
 }
 function renderUsage() {
   const U = S.usage; const body = $('usageBody');
-  if (!U) { body.innerHTML = '<div class="kpis">' + Array.from({ length: 4 }, () => '<div class="kpi"><div class="skel" style="width:60%"></div><div class="skel" style="margin-top:10px;width:40%"></div></div>').join('') + '</div>'; loadUsage(); return; }
-  if (U.error) { body.innerHTML = '<div class="note bad">Could not build the usage report: ' + esc(U.error) + '</div>'; return; }
+  if (!U) { body.innerHTML = skeleton('tiles', 4) + skeleton('rows', 5); loadUsage(); return; }
+  if (U.error) { body.innerHTML = '<div class="note bad">The usage report didn\'t build: ' + esc(U.error) + '</div>'; return; }
   const b = U.build; let h = '';
   const refs = U.hub.filesWithModelReferences || [];
   const hi = U.hubAi || { month: { calls: 0, total: 0, usd: 0 }, all: { calls: 0, total: 0, usd: 0 }, recent: [] };
+  h += '<div class="kpis"><div class="kpi info"><small>Model calls this month</small><b>' + hi.month.calls + '</b></div><div class="kpi"><small>Tokens this month</small><b>' + fmtTok(hi.month.total) + '</b></div><div class="kpi warn"><small>Estimated cost this month</small><b>' + fmtUsd(hi.month.usd) + '</b></div><div class="kpi ok"><small>All time estimate</small><b>' + fmtUsd(hi.all.usd) + '</b></div></div>';
   h += U.hub.modelCalls === 0
     ? '<div class="note ok" style="margin-bottom:16px"><b>The hub spends model tokens only on Today\'s plan.</b> This month: ' + hi.month.calls + ' call' + (hi.month.calls === 1 ? '' : 's') + ', ' + fmtTok(hi.month.total) + ' tokens, about ' + fmtUsd(hi.month.usd)
       + ' (all time: ' + hi.all.calls + ' calls, about ' + fmtUsd(hi.all.usd) + '). Nothing else in the hub calls a model: reading git, Azure DevOps and this report cost no tokens. Building or changing the hub in a Claude session is counted below.</div>'
@@ -1187,14 +1255,20 @@ function renderUsage() {
 }
 
 /* ---------- shell ---------- */
-const TITLES = { plan: ['Today\'s plan', 'Say what you plan to do. I turn it into a checklist tied to your work items.'], tasks: ['Task board', 'Your work items and pull requests with their real code state from git.'], worktrees: ['Worktrees', 'Every worktree across all your clones, with its real git state.'], cleared: ['Cleared worktrees', 'Worktrees you marked as done or handled by someone else, with the reason.'],
+const TITLES = { comments: ['Comments', 'New comments from other people on the work items you follow, and who you are waiting on. Notifications only: nothing is written to Azure DevOps.'], testing: ['Testing', 'Your flow specs, their evidence, and what your QA repository has: prepare flow cards, ported specs and test plan drafts for QA to review.'], planner: ['Work planner', 'Put your work on the days you will do it, hand work to others and keep watch. Each day\'s lines appear in Today\'s plan.'], plan: ['Today\'s plan', 'Tell me what you plan to do and I\'ll turn it into a checklist tied to your work items.'], tasks: ['Task board', 'Your work items and pull requests, and where the code for each one really is.'], worktrees: ['Worktrees', 'Every worktree across all your clones, with its real git state.'], cleared: ['Cleared worktrees', 'Worktrees you marked as done or handled by someone else, with the reason.'],
   ratings: ['Workflow ratings', 'Measured, not guessed: baseline vs recent weeks, and whether the hub is closing each gap.'],
   usage: ['Token usage', 'What building and using this hub costs in model tokens, and the wider workspace for comparison.'],
   moves: ['Live moves', 'Work moved from a worktree into the live repo, step by step.'], stashes: ['Stashes', 'Every git stash in every clone: see what each one is, clear what is not needed, re-work what is.'] };
+// A greeting by the time of day, using the name from your settings.
+function greet() {
+  const h = new Date().getHours(); const hello = h < 5 ? 'Still up' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  const name = String((S.me && (S.me.userName || S.me.user)) || '').split(/[\s@.]/)[0];
+  return name ? hello + ', ' + name : hello;
+}
 function render() {
   document.querySelectorAll('#menu a').forEach((a) => (a.dataset.view === S.view ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current')));
-  $('title').textContent = TITLES[S.view][0]; $('subtitle').textContent = TITLES[S.view][1];
-  $('viewPlan').hidden = S.view !== 'plan'; $('viewTasks').hidden = S.view !== 'tasks';
+  $('title').textContent = S.view === 'plan' ? greet() : TITLES[S.view][0]; $('subtitle').textContent = TITLES[S.view][1];
+  $('viewPlan').hidden = S.view !== 'plan'; $('viewTasks').hidden = S.view !== 'tasks'; $('viewPlanner').hidden = S.view !== 'planner'; $('viewTesting').hidden = S.view !== 'testing'; $('viewComments').hidden = S.view !== 'comments';
   $('navCountPlan').textContent = S.plan && S.plan.items && S.plan.date === S.plan.today ? (S.plan.items.filter((i) => i.status === 'todo').length || '') : '';
   $('navCountTasks').textContent = S.tasksData ? (S.tasksData.tasks.filter((t) => t.attention.length).length || '') : '';
   $('viewWorktrees').hidden = S.view !== 'worktrees'; $('viewCleared').hidden = S.view !== 'cleared';
@@ -1209,9 +1283,9 @@ function render() {
   $('who').textContent = S.me.user ? 'Signed in as ' + S.me.user : '';
   const sb = $('setupBanner'); const probs = (S.me && S.me.problems) || []; sb.hidden = !probs.length;
   if (probs.length) sb.innerHTML = '<b>Setup needed.</b> ' + probs.map(esc).join(' ');
-  if (S.view === 'plan') renderPlan(); else if (S.view === 'tasks') renderTasks(); else if (S.view === 'worktrees') renderWorktrees(); else if (S.view === 'cleared') renderCleared(); else if (S.view === 'moves') renderMoves(); else if (S.view === 'usage') renderUsage(); else if (S.view === 'ratings') renderRatings(); else renderStashes();
+  if (S.view === 'comments') { if (typeof renderComments === 'function') renderComments(); } else if (S.view === 'testing') { if (typeof renderTesting === 'function') renderTesting(); } else if (S.view === 'planner') { if (typeof renderPlanner === 'function') renderPlanner(); } else if (S.view === 'plan') renderPlan(); else if (S.view === 'tasks') renderTasks(); else if (S.view === 'worktrees') renderWorktrees(); else if (S.view === 'cleared') renderCleared(); else if (S.view === 'moves') renderMoves(); else if (S.view === 'usage') renderUsage(); else if (S.view === 'ratings') renderRatings(); else renderStashes();
 }
-function route() { const h = location.hash.slice(1); S.view = TITLES[h] ? h : 'plan'; render(); if (S.view === 'stashes' && S.sm && !S.sm.data && !S.sm.loading && typeof loadStashMgr === 'function') loadStashMgr(); }
+function route() { const h = location.hash.slice(1); S.view = TITLES[h] ? h : 'plan'; render(); if (S.view === 'stashes' && S.sm && !S.sm.data && !S.sm.loading && typeof loadStashMgr === 'function') loadStashMgr(); if (S.view === 'comments' && S.cw && typeof loadComments === 'function') loadComments(); if (S.view === 'testing' && S.ts && !S.ts.data && !S.ts.loading && typeof loadTesting === 'function') loadTesting(); if (S.view === 'planner' && S.pl && typeof loadPlanner === 'function' && (!S.pl.data || !S.pl.revisedToday) && !S.pl.loading) loadPlanner(); }
 
 document.addEventListener('click', (e) => {
   const card = e.target.closest('[data-open]');
@@ -1223,6 +1297,7 @@ document.addEventListener('click', (e) => {
   else if (t.dataset.ft) { if (S.tab === 'work') S.fT = t.dataset.ft; else S.fR = t.dataset.ft; render(); }
   else if (t.dataset.kt) { S.dirT = S.sortT === t.dataset.kt ? -S.dirT : 1; S.sortT = t.dataset.kt; render(); }
   else if (t.dataset.goto) { if (drawer.open) drawer.close(); S.q = t.dataset.goto; S.filter = 'all'; $('q').value = S.q; location.hash = '#worktrees'; }
+  else if (t.dataset.moveSteps) openMoveSteps(Number(t.dataset.moveSteps));
   else if (t.dataset.move) openMove(t.dataset.move);
   else if (t.dataset.handled) openHandled(Number(t.dataset.handled));
   else if (t.dataset.copy) { navigator.clipboard.writeText(t.dataset.copy).then(() => toast('Command copied'), () => toast('Copy failed: select the command by hand', { bad: true })); }
@@ -1265,5 +1340,14 @@ try { const t = localStorage.getItem('hub-theme'); if (t) document.documentEleme
     document.title = S.me.title; document.querySelector('.brand b').textContent = S.me.brand; document.querySelector('.logo').textContent = (S.me.brand.trim()[0] || 'H').toUpperCase();
   } catch (e) { /* shown by load() */ }
   await load(false);
+  if (typeof loadPlanner === 'function' && S.view !== 'planner') loadPlanner(true); // fills the attention count in the sidebar
   setInterval(() => { if (!dlg.open) load(false, true); }, 60000);
 })();
+
+document.addEventListener('click', (e) => { document.querySelectorAll('details.menu-pop[open]').forEach((d) => { if (!d.contains(e.target) || e.target.closest('.pop button')) d.removeAttribute('open'); }); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.querySelectorAll('details.menu-pop[open]').forEach((d) => { d.removeAttribute('open'); d.querySelector('summary').focus(); });
+  const row = e.target.closest && e.target.closest('.crow'); if (!row || e.target !== row) return;
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const n = e.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling; if (n && n.classList.contains('crow')) { e.preventDefault(); n.focus(); } }
+  else if (e.key === 'Enter') { const l = row.querySelector('.tlink'); if (l) { e.preventDefault(); l.click(); } }
+});

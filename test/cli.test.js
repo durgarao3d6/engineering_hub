@@ -34,7 +34,7 @@ const plainDir = D('some-folder'); const folderTask = D('alice-7136');
 
   console.log('--- command-line tool');
   let r = cli(['status']); check('status', r.status === 0 && /Hub is running/.test(r.stdout) && /wal/.test(r.stdout), r.stdout.trim().slice(0, 100));
-  r = cli(['note', '8246', 'The menu is built in Portal; roles come from PlatformSecurity.', '--section', 'Findings', '--author', 'session abc']);
+  r = cli(['note', '8246', 'The menu is built in Portal; roles come from Security.', '--section', 'Findings', '--author', 'session abc']);
   check('note is added through the hub', r.status === 0 && /Note #\d+ added to task #8246/.test(r.stdout), r.stdout.trim() + r.stderr.trim());
   check('and stored with the author the tool passed', notes().some((n) => n.task_id === 8246 && n.author === 'session abc' && n.section === 'Findings'));
   r = cli(['note', '8246', 'x', '--section', 'Gossip']); check('an unknown section is refused', r.status === 1 && /Section must be one of/.test(r.stderr));
@@ -44,8 +44,8 @@ const plainDir = D('some-folder'); const folderTask = D('alice-7136');
   check('text can come from stdin', r.status === 0 && notes().some((n) => /several lines/.test(n.body) && n.section === 'Decisions'));
   r = cli(['note', '8246', 'x'.repeat(9000)]); check('an oversized note is refused by the hub', r.status === 1 && /8000|large/.test(r.stderr), r.stderr.trim().slice(0, 80));
   r = cli(['context', '8246']);
-  live('context shows the task title and state from Azure DevOps', r.status === 0 && /Task #8246/.test(r.stdout) && /Customer Portal/i.test(r.stdout), r.stdout.split('\n')[0].slice(0, 100));
-  check('context shows earlier notes with who wrote them', /roles come from PlatformSecurity/.test(r.stdout) && /session abc/.test(r.stdout) && /\[Findings\]/.test(r.stdout));
+  live('context shows the task title and state from Azure DevOps', r.status === 0 && /Task #8246/.test(r.stdout) && /Billing Portal/i.test(r.stdout), r.stdout.split('\n')[0].slice(0, 100));
+  check('context shows earlier notes with who wrote them', /roles come from Security/.test(r.stdout) && /session abc/.test(r.stdout) && /\[Findings\]/.test(r.stdout));
   check('context stays short enough to put in a session', r.stdout.length < 3800, String(r.stdout.length));
   r = cli(['plan']); check('plan works with no plan yet', r.status === 0 && /No plan/.test(r.stdout));
   r = cli(['frobnicate']); check('an unknown command is refused', r.status === 1);
@@ -55,7 +55,7 @@ const plainDir = D('some-folder'); const folderTask = D('alice-7136');
 
   console.log('--- hook: session start');
   r = hook('session-start', { session_id: 's-task', cwd: taskDir });
-  check('prints the shared context for the task the branch names', r.status === 0 && /Test Hub: shared context for task #8246/.test(r.stdout) && /roles come from PlatformSecurity/.test(r.stdout), r.stdout.split('\n')[0]);
+  check('prints the shared context for the task the branch names', r.status === 0 && /Test Hub: shared context for task #8246/.test(r.stdout) && /roles come from Security/.test(r.stdout), r.stdout.split('\n')[0]);
   check('and tells the session how to record notes', /hub\.js" note 8246/.test(r.stdout));
   check('and remembers when the session started', JSON.parse(fs.readFileSync(path.join(hookTmp, 's-task.json'), 'utf8')).taskId === 8246);
   r = hook('session-start', { session_id: 's-folder', cwd: folderTask });

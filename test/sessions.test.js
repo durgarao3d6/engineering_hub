@@ -13,17 +13,17 @@ const check = (n, ok, x) => { console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? ' 
 
 const line = (o) => JSON.stringify(o);
 const mk = (proj, id, lines) => { fs.mkdirSync(path.join(dir, proj), { recursive: true }); fs.writeFileSync(path.join(dir, proj, id + '.jsonl'), lines.join('\n') + '\n'); };
-mk('E--TMS-UI-a', 'aaaa', [
+mk('C--work-UI-a', 'aaaa', [
   line({ type: 'user', cwd: 'C:\\work\\wt\\alice-5945', gitBranch: 'dev/5945-address-autolist', timestamp: '2026-11-10T09:00:00Z', message: { content: 'SECRET CONVERSATION TEXT' } }),
   line({ type: 'assistant', cwd: 'C:\\work\\wt\\alice-5945', gitBranch: 'dev/5945-address-autolist', timestamp: '2026-11-10T10:00:00Z' }),
 ]);
-mk('E--TMS-UI-b', 'bbbb', [
+mk('C--work-UI-b', 'bbbb', [
   line({ cwd: 'C:\\work\\wt\\bob-5945', gitBranch: 'dev/5945-address-autolist', timestamp: '2026-11-15T09:00:00Z' }),
   line({ cwd: 'C:\\work\\wt\\bob-5945', gitBranch: 'dev/7763-contacts', timestamp: '2026-11-15T12:00:00Z' }),
 ]);
-mk('E--TMS', 'cccc', [line({ cwd: 'C:\\work', gitBranch: 'main', timestamp: '2026-11-16T09:00:00Z' })]);
-mk('E--TMS-x', 'dddd', [line({ cwd: 'C:\\work', gitBranch: 'dev/59451-other-task', timestamp: '2026-11-17T09:00:00Z' })]);
-fs.writeFileSync(path.join(dir, 'E--TMS', 'notes.txt'), 'not a transcript');
+mk('C--work', 'cccc', [line({ cwd: 'C:\\work', gitBranch: 'main', timestamp: '2026-11-16T09:00:00Z' })]);
+mk('C--work-x', 'dddd', [line({ cwd: 'C:\\work', gitBranch: 'dev/59451-other-task', timestamp: '2026-11-17T09:00:00Z' })]);
+fs.writeFileSync(path.join(dir, 'C--work', 'notes.txt'), 'not a transcript');
 
 const rows = [
   { sessionId: 'aaaa', prompt: 'Fix the autolist duplicates', start: '2026-11-10T09:00:00Z', main: { usd: 1.5 }, subagents: [{ usd: 0.25 }] },
@@ -47,7 +47,7 @@ check('a missing projects folder gives an empty list, not an error', sessions.fo
 check('a non-numeric id is rejected quietly', sessions.forTask('abc', { projectsDir: dir, rows }).sessions.length === 0);
 
 // cache refreshes when a transcript grows
-fs.appendFileSync(path.join(dir, 'E--TMS-UI-a', 'aaaa.jsonl'), line({ cwd: 'x', gitBranch: 'dev/5945-address-autolist', timestamp: '2026-11-12T10:00:00Z' }) + '\n');
+fs.appendFileSync(path.join(dir, 'C--work-UI-a', 'aaaa.jsonl'), line({ cwd: 'x', gitBranch: 'dev/5945-address-autolist', timestamp: '2026-11-12T10:00:00Z' }) + '\n');
 check('a grown transcript is rescanned', sessions.forTask(5945, { projectsDir: dir, rows }).sessions.find((s) => s.sessionId === 'aaaa').last === '2026-11-12T10:00:00Z');
 
 console.log(fails ? fails + ' FAILED' : 'ALL PASSED');

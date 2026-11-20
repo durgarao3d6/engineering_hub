@@ -9,7 +9,7 @@ const cfg = require('../config');
 const { detectTask } = require('../lib/task');
 const { formatContext } = require('../lib/format');
 
-const TMP = process.env.HUB_HOOK_TMP || path.join(os.tmpdir(), 'tms-hub-hooks');
+const TMP = process.env.HUB_HOOK_TMP || path.join(os.tmpdir(), 'eng-hub-hooks');
 const safe = (s) => String(s || 'unknown').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80);
 
 let raw = '';

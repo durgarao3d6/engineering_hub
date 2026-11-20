@@ -15,7 +15,11 @@ const { collectWorktrees, cloneList } = require('./collectors/worktrees');
 const { pool } = require('./collectors/git');
 const stashinfo = require('./collectors/stashinfo');
 const stashmgr = require('./stashmgr');
-const { collectTasks, collectCompleted, fetchDetail } = require('./collectors/tasks');
+const { collectTasks, collectCompleted, fetchDetail, fetchMany, searchByKeywords, fetchComments, fetchCounts, fetchThread } = require('./collectors/tasks');
+const commentwatch = require('./commentwatch');
+const planboard = require('./planboard');
+const planai = require('./planai');
+const testingMod = require('./testing');
 const usage = require('./usage');
 const sessionsMod = require('./sessions');
 const ai = require('./ai');
@@ -122,6 +126,156 @@ async function createClearance(req, res) {
   }
   const id = store.clear(w, { category, reason, reference }, USER);
   return json(res, 201, { id, clearance: store.get(id) });
+}
+
+/* ---------- work planner ---------- */
+// HUB_FAKE_WORKITEMS=<json file> replaces Azure DevOps with fixed data (tests only): { me, assigned: [...], items: [...], reviews: [...] }.
+const FAKE_ITEMS = process.env.HUB_FAKE_WORKITEMS;
+const fakeFile = () => JSON.parse(fs.readFileSync(FAKE_ITEMS, 'utf8'));
+const workPlanner = planboard.create({
+  getTasks: async (force) => { if (!FAKE_ITEMS) return tasks(force); const j = fakeFile(); return { ado: { ok: true }, me: j.me || '', tasks: (j.assigned || []).map((t) => ({ assignedToMe: true, ...t })), reviews: j.reviews || [] }; },
+  searchTopics: async (keywords, force) => {
+    if (!FAKE_ITEMS) return searchByKeywords(keywords, cfg.planner.searchTypes, force);
+    const lc = keywords.map((k) => k.toLowerCase()); const done = new Set(['Resolved', 'Closed', 'Done', 'Removed']);
+    return (fakeFile().search || []).filter((t) => !done.has(t.state)).map((t) => ({ ...t, matched: lc.filter((k) => ((t.title || '') + ' ' + (t.tags || '')).toLowerCase().includes(k)) })).filter((t) => t.matched.length);
+  },
+  fetchMany: async (ids) => { if (!FAKE_ITEMS) return fetchMany(ids); const j = fakeFile(); const all = [...(j.items || []), ...(j.assigned || []), ...(j.search || [])]; return new Map(ids.map((i) => [i, all.find((t) => t.id === i)]).filter(([, t]) => t)); },
+});
+// AI auto-planning: it proposes, you apply. With HUB_FAKE_WORKITEMS the details and discussions come from the file too (tests only).
+const workPlannerAi = planai.create({
+  planner: workPlanner, ai,
+  fetchDetail: async (id) => {
+    if (!FAKE_ITEMS) return fetchDetail(id);
+    const j = fakeFile(); const t = [...(j.assigned || []), ...(j.items || []), ...(j.search || [])].find((x) => x.id === id) || { id };
+    return { id, type: t.type || '', title: t.title || '', state: t.state || '', priority: t.priority || null, severity: '', points: null, tags: String(t.tags || '').split(';').map((x) => x.trim()).filter(Boolean), areaPath: '', iterationPath: '', assignedTo: t.assignedTo || '', changedDate: t.changedDate || null, ...((j.details || {})[id] || {}) };
+  },
+  fetchComments: async (id, n) => {
+    if (!FAKE_ITEMS) return fetchComments(id, n);
+    const c = (fakeFile().comments || {})[id] || []; return { total: c.length, comments: c.slice(0, n) };
+  },
+});
+/* ---------- comment watch: unread comments on the work items you follow, and who you are waiting on (read-only against Azure DevOps) ---------- */
+const CW_DONE = new Set(['Resolved', 'Closed', 'Done', 'Removed']);
+function cwTaskIds() {
+  const ids = new Set();
+  if (FAKE_ITEMS) { try { const j = fakeFile(); [...(j.assigned || []), ...(j.items || [])].forEach((t) => ids.add(t.id)); } catch { /* none */ } }
+  else for (const t of (tcache.data && tcache.data.tasks) || []) if (!CW_DONE.has(t.state)) ids.add(t.id);
+  for (const id of store.plannerScheduledIds('0000-01-01')) ids.add(id);
+  for (const d of store.delegationList('open')) ids.add(d.taskId);
+  for (const r of store.laterList()) ids.add(r.task_id);
+  for (const id of store.noteStats().keys()) ids.add(id);
+  return [...ids];
+}
+const commentWatch = commentwatch.create({
+  watchedIds: cwTaskIds,
+  getMe: async () => {
+    if (FAKE_ITEMS) { const j = fakeFile(); return { id: j.meId || '', name: j.me || '', unique: j.meUnique || '' }; }
+    const d = await tasks(false);
+    if (!d.meInfo) throw new Error((d.ado && d.ado.error) || 'Azure DevOps is not available.');
+    return d.meInfo;
+  },
+  fetchCounts: async (ids) => {
+    if (!FAKE_ITEMS) return fetchCounts(ids);
+    const j = fakeFile(); const all = [...(j.assigned || []), ...(j.items || []), ...(j.search || [])];
+    return new Map(ids.map((id) => { const t = all.find((x) => x.id === id); return t ? [id, { count: ((j.comments || {})[id] || []).length, title: t.title || '', state: t.state || '', changed: t.changedDate || null }] : null; }).filter(Boolean));
+  },
+  fetchThread: async (id, n) => {
+    if (!FAKE_ITEMS) return fetchThread(id, n);
+    const c = ((fakeFile().comments || {})[id] || []); return { total: c.length, comments: c.slice(0, n) };
+  },
+});
+async function commentRoutes(req, res, p) {
+  if (req.method === 'GET') {
+    if (p === '/api/comments') return json(res, 200, commentWatch.view()), true;
+    if (p === '/api/comments/summary') return json(res, 200, commentWatch.summary()), true;
+    return false;
+  }
+  if (p === '/api/comments/refresh') { await readBody(req); await commentWatch.poll(); return json(res, 200, commentWatch.view()), true; }
+  if (p === '/api/comments/read-all') { await readBody(req); return json(res, 200, { marked: commentWatch.markRead(null) }), true; }
+  let m = /^\/api\/comments\/(\d+)\/(read|watch)$/.exec(p);
+  if (m) {
+    const b = await readBody(req); const id = Number(m[1]);
+    if (m[2] === 'read') return json(res, 200, { marked: commentWatch.markRead(id) }), true;
+    commentWatch.setWatch(id, !!b.on); return json(res, 200, { ok: true }), true;
+  }
+  m = /^\/api\/comments\/(\d+)\/suggestion\/(accept|dismiss)$/.exec(p);
+  if (m) {
+    const b = await readBody(req); const id = Number(m[1]);
+    if (m[2] === 'dismiss') return commentWatch.dismissSuggestion(id) ? json(res, 200, { ok: true }) : json(res, 404, { error: 'No suggestion for this item.' }), true;
+    const ask = commentWatch.acceptSuggestion(id, b.nudgeDays); return ask ? json(res, 201, { id: ask }) : json(res, 404, { error: 'No suggestion for this item.' }), true;
+  }
+  if (p === '/api/asks') { const b = await readBody(req); return json(res, 201, { id: commentWatch.addAsk(b) }), true; }
+  m = /^\/api\/asks\/(\d+)\/(close|snooze)$/.exec(p);
+  if (m) {
+    const b = await readBody(req); const id = Number(m[1]);
+    const ok = m[2] === 'close' ? commentWatch.closeAsk(id) : commentWatch.snoozeAsk(id, b.days);
+    return ok ? json(res, 200, { ok: true }) : json(res, 404, { error: 'Not found.' }), true;
+  }
+  return false;
+}
+const posInt = (v) => (Number.isInteger(v) && v > 0 ? v : null);
+async function plannerRoutes(req, res, p, url) {
+  if (req.method === 'GET') {
+    if (p === '/api/planner') return json(res, 200, await workPlanner.board(url.searchParams.get('refresh') === '1')), true;
+    const h = /^\/api\/planner\/delegations\/(\d+)\/history$/.exec(p);
+    if (h) return json(res, 200, { events: workPlanner.history(Number(h[1])) }), true;
+    return false;
+  }
+  if (req.method !== 'POST') return false;
+  const body = await readBody(req, p.startsWith('/api/planner/ai/') ? 32768 : 8192);
+  const send = async (fn) => json(res, 200, await fn());
+  let m;
+  if (p === '/api/planner/revise') return await send(() => workPlanner.revise()), true;
+  if (p === '/api/planner/schedule') { const id = posInt(body.taskId); if (!id) return json(res, 400, { error: 'Pick a work item.' }), true; return await send(() => workPlanner.schedule(id, String(body.date || ''), USER)), true; }
+  if (p === '/api/planner/move') { const id = posInt(body.itemId); if (!id) return json(res, 400, { error: 'Pick a line.' }), true; return await send(() => workPlanner.move(id, String(body.date || ''), posInt(body.position) || undefined)), true; }
+  if (p === '/api/planner/park') { const id = posInt(body.itemId); if (!id) return json(res, 400, { error: 'Pick a line.' }), true; return await send(async () => workPlanner.park(id)), true; }
+  if (p === '/api/planner/unschedule') { const id = posInt(body.itemId); if (!id) return json(res, 400, { error: 'Pick a line.' }), true; return await send(async () => workPlanner.unschedule(id)), true; }
+  if (p === '/api/planner/bring-to-today') return await send(() => workPlanner.bringToToday()), true;
+  if (p === '/api/planner/sort') return await send(() => workPlanner.sortDay(String(body.date || ''))), true;
+  if (p === '/api/planner/ack') return await send(() => workPlanner.ack(posInt(body.itemId) || undefined)), true;
+  if (p === '/api/planner/delegate') {
+    const id = posInt(body.taskId); if (!id) return json(res, 400, { error: 'Pick a work item.' }), true;
+    return json(res, 201, await workPlanner.delegate({ taskId: id, person: body.person, mode: body.mode, note: clean(body.note, 500), expectBy: body.expectBy ? String(body.expectBy) : null, checkEveryDays: body.checkEveryDays, wakeAfterDays: body.wakeAfterDays }, USER)), true;
+  }
+  if (p === '/api/planner/ai/estimate') return await send(() => workPlannerAi.estimate({ scope: body.scope, days: body.days, maxItems: body.maxItems, includeDiscussion: body.includeDiscussion })), true;
+  if (p === '/api/planner/ai/run') return await send(() => workPlannerAi.run(String(body.runId || ''), { mode: body.mode })), true;
+  if (p === '/api/planner/ai/apply') return await send(() => workPlannerAi.apply(String(body.runId || ''), body.picks, USER)), true;
+  if (p === '/api/planner/ai/discard') return await send(async () => workPlannerAi.discard(String(body.runId || ''))), true;
+  if (p === '/api/planner/search') return await send(() => workPlanner.search(body.q)), true;
+  if (p === '/api/planner/topics') return json(res, 201, workPlanner.addTopic(body.keyword, USER)), true;
+  if ((m = /^\/api\/planner\/topics\/(\d+)\/remove$/.exec(p))) return await send(async () => workPlanner.removeTopic(Number(m[1]))), true;
+  if (p === '/api/planner/reassigned') { const id = posInt(body.taskId); if (!id) return json(res, 400, { error: 'Pick a work item.' }), true; return json(res, 201, await workPlanner.recordReassigned(id, clean(body.person, 80), USER)), true; }
+  if ((m = /^\/api\/planner\/delegations\/(\d+)\/(check|mode|close|take-back|checkin)$/.exec(p))) {
+    const id = Number(m[1]);
+    if (m[2] === 'check') return await send(() => workPlanner.check(id, body.nextInDays, clean(body.note, 300))), true;
+    if (m[2] === 'mode') return await send(() => workPlanner.setMode(id, String(body.mode || ''), body)), true;
+    if (m[2] === 'close') return await send(async () => workPlanner.closeDelegation(id, String(body.reason || ''), clean(body.note, 300), USER)), true;
+    if (m[2] === 'take-back') return await send(() => workPlanner.takeBack(id, String(body.to || 'inbox'), USER)), true;
+    if (m[2] === 'checkin') return await send(() => workPlanner.addCheckin(id, body.date ? String(body.date) : undefined)), true;
+  }
+  return false;
+}
+
+/* ---------- testing phase: flow specs, evidence and the QA pack ---------- */
+const testing = testingMod.create();
+async function testingRoutes(req, res, p, url) {
+  const fileOf = (v) => (/^[\w.-]+\.spec\.ts$/.test(String(v || '')) ? String(v) : null);
+  if (req.method === 'GET') {
+    if (p === '/api/testing') {
+      const c = await testing.catalogue();
+      return json(res, 200, { configured: c.configured, qaConfigured: c.qaConfigured, note: c.note || '', evidenceRuns: c.evidenceRuns || 0, entries: c.entries.map(testing.slim), library: c.configured ? testing.libStatus() : [], packs: store.qaPackList(10),
+        evidenceCommand: cfg.testing.evidenceCommand, names: cfg.testing.names }), true;
+    }
+    if (p === '/api/testing/spec') { const f = fileOf(url.searchParams.get('file')); if (!f) return json(res, 400, { error: 'Pick a spec.' }), true; return json(res, 200, await testing.detail(f)), true; }
+    return false;
+  }
+  if (req.method !== 'POST') return false;
+  const body = await readBody(req, 8192);
+  const files = (Array.isArray(body.files) ? body.files : []).map(fileOf).filter(Boolean).slice(0, 40);
+  const opts = { include: (Array.isArray(body.include) ? body.include : []).filter((x) => ['card', 'spec', 'inventory', 'testcase'].includes(x)), overwrite: (Array.isArray(body.overwrite) ? body.overwrite : []).map(fileOf).filter(Boolean), taskId: body.taskId };
+  if (p === '/api/testing/preview') { if (!files.length) return json(res, 400, { error: 'Pick at least one flow.' }), true; return json(res, 200, await testing.preview(files, opts)), true; }
+  if (p === '/api/testing/pack') { if (!files.length) return json(res, 400, { error: 'Pick at least one flow.' }), true; return json(res, 201, await testing.buildPack(files, USER, opts)), true; }
+  return false;
 }
 
 /* ---------- stash manager ---------- */
@@ -557,7 +711,7 @@ const server = http.createServer(async (req, res) => {
         let detail = null; let error = null;
         try { detail = await fetchDetail(id); } catch (e) { error = e.message; }
         const d = tcache.data;
-        return json(res, 200, { id, detail, error, task: (d && d.tasks.find((t) => t.id === id)) || null, notes: store.noteList(id), sections: SECTIONS });
+        return json(res, 200, { id, detail, error, task: (d && d.tasks.find((t) => t.id === id)) || null, notes: store.noteList(id), sections: SECTIONS, comments: commentWatch.forTask(id) });
       }
       if (p === '/api/moves/plan') {
         const w = await knownWorktree(url.searchParams.get('path'));
@@ -567,6 +721,9 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/moves') return json(res, 200, { moves: store.moveList(), busy: mover.isBusy() });
       const mv = /^\/api\/moves\/(\d+)$/.exec(p);
       if (mv) { const m = store.moveGet(Number(mv[1])); return m ? json(res, 200, m) : json(res, 404, { error: 'Not found' }); }
+      if (p.startsWith('/api/testing') && await testingRoutes(req, res, p, url)) return;
+      if (p.startsWith('/api/comments') && await commentRoutes(req, res, p)) return;
+      if (p.startsWith('/api/planner') && await plannerRoutes(req, res, p, url)) return;
       if (p.startsWith('/api/stash/') && await stashRoutes(req, res, p, url)) return;
       if (p === '/api/stashes') return json(res, 200, { stashes: await mover.stashStates(store.stashList()) });
       const file = p === '/' ? 'index.html' : path.basename(p);
@@ -577,6 +734,10 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST') {
       const bad = guardWrite(req);
       if (bad) return json(res, 403, { error: bad });
+      if (p.startsWith('/api/testing') && await testingRoutes(req, res, p, url)) return;
+      if (p.startsWith('/api/comments') && await commentRoutes(req, res, p)) return;
+      if (p.startsWith('/api/asks') && await commentRoutes(req, res, p)) return;
+      if (p.startsWith('/api/planner') && await plannerRoutes(req, res, p, url)) return;
       if (p.startsWith('/api/stash/') && await stashRoutes(req, res, p, url)) return;
       if (p === '/api/clearances') return await createClearance(req, res);
       if (p === '/api/moves') return await startMove(req, res);
@@ -622,6 +783,7 @@ server.listen(cfg.port, '127.0.0.1', () => {
   if (store.health().migration.snapshot) console.log('Database upgraded (schema ' + store.health().migration.from + ' to ' + store.health().migration.to + '). Copy kept at ' + store.health().migration.snapshot);
   backup.start();
   inbox.start({ note: ingestNote });
+  if (!FAKE_ITEMS || process.env.HUB_FAKE_POLL) commentWatch.start();
   setTimeout(async () => { // refresh the ratings once a week without being asked (read-only, no model, about 10 seconds)
     try { const r = scorecard.status().result; if (!r || Date.now() - Date.parse(r.generatedAt) > 7 * 86400000) await runScorecard(); } catch { /* next start */ }
   }, 20000).unref();

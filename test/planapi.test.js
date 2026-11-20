@@ -36,7 +36,7 @@ const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); retu
   [s, j] = await post('/api/plan/parse', { text: 'Work on 8246\nSomething completely brand new zzz thing' });
   check('parse ok', s === 200 && j.engine === 'ai' && j.items.length === 2, JSON.stringify({ s, engine: j.engine, n: j.items && j.items.length, err: j.error }));
   const proposal = j;
-  live('explicit id matched to the real work item', proposal.items[0].taskId === 8246 && /Customer Portal/i.test(proposal.items[0].task.title), proposal.items[0].task && proposal.items[0].task.title);
+  live('explicit id matched to the real work item', proposal.items[0].taskId === 8246 && /Billing Portal/i.test(proposal.items[0].task.title), proposal.items[0].task && proposal.items[0].task.title);
   check('new task has a draft', !!proposal.items[1].draft && proposal.items[1].draft.title.startsWith('Area:'));
   [s, j] = await get('/api/ai/status');
   check('both model calls were recorded', j.month.calls === 2 && j.month.usd > 0, JSON.stringify(j.month));

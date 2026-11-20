@@ -139,7 +139,7 @@ async function collectTasks(wtData, noteIds) {
   let R = null;
   if (!cfg.adoConfigured) out.ado = { ok: false, notConfigured: true, error: 'Azure DevOps is not set up.' };
   else {
-    try { R = await remote(rows, [...ids]); out.me = R.me.providerDisplayName; }
+    try { R = await remote(rows, [...ids]); out.me = R.me.providerDisplayName; out.meInfo = { id: R.me.id || '', name: R.me.providerDisplayName || '', unique: R.me.uniqueName || (R.me.properties && R.me.properties.Account && R.me.properties.Account.$value) || '' }; }
     catch (e) { out.ado = { ok: false, auth: e.code === 'AUTH', error: e.message }; }
   }
   out.tasks = build(rows, R, ids);
@@ -194,4 +194,84 @@ async function collectCompleted(days, wtRows) {
   return data;
 }
 
-module.exports = { collectTasks, collectCompleted, fetchDetail };
+// The discussion of one work item: newest comments first, as plain data. Read-only (a GET); the text goes only to the planner's analysis.
+const ccache2 = new Map();
+async function fetchComments(id, limit) {
+  const n = Math.min(20, Math.max(1, limit || 8)); const key = id + ':' + n;
+  const hit = ccache2.get(key);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.data;
+  const r = await ado('_apis/wit/workItems/' + id + '/comments?$top=' + n + '&order=desc&api-version=7.1-preview.4');
+  const data = { total: r.totalCount != null ? r.totalCount : (r.comments || []).length, comments: (r.comments || []).map((c) => ({ author: (c.createdBy && (c.createdBy.displayName || c.createdBy.uniqueName)) || '', at: c.createdDate || c.modifiedDate || null, html: c.text || '' })) };
+  ccache2.set(key, { at: Date.now(), data });
+  return data;
+}
+
+// Comment counts for many work items in one batch search (200 ids per call). Read-only. Items Azure DevOps cannot read are left out.
+async function fetchCounts(ids) {
+  const out = new Map(); const list = [...new Set(ids)].filter((i) => Number.isInteger(i) && i > 0);
+  for (let i = 0; i < list.length; i += 200) {
+    const r = await ado('_apis/wit/workitemsbatch?api-version=7.1', { ids: list.slice(i, i + 200), fields: ['System.Id', 'System.CommentCount', 'System.Title', 'System.State', 'System.ChangedDate'], errorPolicy: 'Omit' });
+    for (const w of r.value.filter(Boolean)) { const f = w.fields || {}; out.set(w.id, { count: Number(f['System.CommentCount']) || 0, title: f['System.Title'] || '', state: f['System.State'] || '', changed: f['System.ChangedDate'] || null }); }
+  }
+  return out;
+}
+// The newest comments of one work item with their ids and authors (for telling new from seen and yours from others'). Read-only GET, newest first.
+async function fetchThread(id, limit) {
+  const n = Math.min(20, Math.max(1, limit || 8));
+  const r = await ado('_apis/wit/workItems/' + id + '/comments?$top=' + n + '&order=desc&api-version=7.1-preview.4');
+  return { total: r.totalCount != null ? r.totalCount : (r.comments || []).length, comments: (r.comments || []).map((c) => ({ id: c.id, author: (c.createdBy && (c.createdBy.displayName || c.createdBy.uniqueName)) || '', authorId: (c.createdBy && c.createdBy.id) || '', authorUnique: (c.createdBy && c.createdBy.uniqueName) || '', at: c.createdDate || c.modifiedDate || null, html: c.text || '' })) };
+}
+
+// Work items by id (the planner uses it for delegated items and anything not on your assigned list). Read-only: one batch search per 200 ids.
+const mcache = new Map();
+async function fetchMany(ids) {
+  const out = new Map(); const need = [];
+  for (const id of new Set(ids)) {
+    if (!Number.isInteger(id) || id <= 0) continue;
+    const hit = mcache.get(id);
+    if (hit && Date.now() - hit.at < 5 * 60 * 1000) { if (hit.data) out.set(id, hit.data); } else need.push(id);
+  }
+  for (let i = 0; i < need.length; i += 200) {
+    const chunk = need.slice(i, i + 200);
+    const r = await ado('_apis/wit/workitemsbatch?api-version=7.1', { ids: chunk, fields: FIELDS, errorPolicy: 'Omit' });
+    const seen = new Set();
+    for (const w of r.value.filter(Boolean)) {
+      const f = w.fields; seen.add(w.id);
+      const data = { id: w.id, type: f['System.WorkItemType'] || '', title: f['System.Title'] || '', state: f['System.State'] || '', assignedTo: f['System.AssignedTo'] ? f['System.AssignedTo'].displayName : '',
+        areaPath: f['System.AreaPath'] || '', priority: f['Microsoft.VSTS.Common.Priority'] || null, changedDate: f['System.ChangedDate'] || null, url: `${BASE}/${cfg.project}/_workitems/edit/${w.id}` };
+      mcache.set(w.id, { at: Date.now(), data }); out.set(w.id, data);
+    }
+    for (const id of chunk) if (!seen.has(id)) mcache.set(id, { at: Date.now(), data: null }); // unknown id: remembered for a while, not asked again
+  }
+  return out;
+}
+
+// Open work items whose title or tags contain any of the keywords, whoever they are assigned to (or nobody). Read-only search, capped at 200, cached 5 minutes.
+const scache = new Map();
+const wiqlText = (s) => String(s).replace(/[\u0000-\u001f]/g, ' ').replace(/'/g, "''");
+async function searchByKeywords(keywords, types, force) {
+  const kws = [...new Set((keywords || []).map((k) => String(k).trim()).filter((k) => k.length >= 2 && k.length <= 60))].slice(0, 20);
+  if (!kws.length) return [];
+  const key = kws.map((k) => k.toLowerCase()).sort().join('|') + '#' + (types || []).join(',');
+  const hit = scache.get(key);
+  if (hit && !force && Date.now() - hit.at < 5 * 60 * 1000) return hit.data;
+  const match = kws.map((k) => "[System.Title] CONTAINS '" + wiqlText(k) + "' OR [System.Tags] CONTAINS '" + wiqlText(k) + "'").join(' OR ');
+  const typeClause = types && types.length ? " AND [System.WorkItemType] IN (" + types.map((t) => "'" + wiqlText(t) + "'").join(',') + ")" : '';
+  const q = await ado('_apis/wit/wiql?$top=200&api-version=7.1', { query: "SELECT [System.Id] FROM workitems WHERE [System.TeamProject]='" + WIQL_PROJECT + "' AND [System.State] NOT IN ('Closed','Done','Removed','Resolved') AND (" + match + ")" + typeClause + " ORDER BY [System.ChangedDate] DESC" });
+  const ids = q.workItems.map((w) => w.id); const out = [];
+  for (let i = 0; i < ids.length; i += 200) {
+    const r = await ado('_apis/wit/workitemsbatch?api-version=7.1', { ids: ids.slice(i, i + 200), fields: [...FIELDS, 'System.Tags'], errorPolicy: 'Omit' });
+    for (const w of r.value.filter(Boolean)) {
+      const f = w.fields; const title = f['System.Title'] || ''; const tags = f['System.Tags'] || '';
+      const hay = (title + ' ' + tags).toLowerCase();
+      out.push({ id: w.id, type: f['System.WorkItemType'] || '', title, state: f['System.State'] || '', assignedTo: f['System.AssignedTo'] ? f['System.AssignedTo'].displayName : '',
+        areaPath: f['System.AreaPath'] || '', priority: f['Microsoft.VSTS.Common.Priority'] || null, changedDate: f['System.ChangedDate'] || null, tags,
+        matched: kws.filter((k) => hay.includes(k.toLowerCase())), url: BASE + '/' + cfg.project + '/_workitems/edit/' + w.id });
+    }
+  }
+  out.sort((a, b) => Date.parse(b.changedDate || 0) - Date.parse(a.changedDate || 0));
+  scache.set(key, { at: Date.now(), data: out });
+  return out;
+}
+
+module.exports = { collectTasks, collectCompleted, fetchDetail, fetchMany, searchByKeywords, fetchComments, fetchCounts, fetchThread };

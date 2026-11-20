@@ -138,6 +138,67 @@ CREATE INDEX IF NOT EXISTS ix_plan_feedback_at ON plan_feedback(at);`);
 );
 CREATE INDEX IF NOT EXISTS ix_stash_actions_hash ON stash_actions(repo_path, hash);`);
   },
+  // 6: the work planner: what a scheduled item looked like when accepted, the Later column, daily revisions, delegations and their history.
+  (d) => {
+    if (!d.prepare('PRAGMA table_info(plan_items)').all().some((c) => c.name === 'snap_json')) d.exec('ALTER TABLE plan_items ADD COLUMN snap_json TEXT');
+    d.exec(`CREATE TABLE IF NOT EXISTS planner_later (task_id INTEGER PRIMARY KEY, added_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS planner_topics (id INTEGER PRIMARY KEY AUTOINCREMENT, keyword TEXT NOT NULL COLLATE NOCASE UNIQUE, created_at TEXT NOT NULL, created_by TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS planner_revisions (date TEXT PRIMARY KEY, at TEXT NOT NULL, new_count INTEGER NOT NULL DEFAULT 0, changed_count INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS delegations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id INTEGER NOT NULL, person TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('monitor','fire_and_forget')),
+  note TEXT, expect_by TEXT, check_every_days INTEGER, next_check TEXT, wake_after_days INTEGER,
+  created_at TEXT NOT NULL, created_by TEXT NOT NULL,
+  last_seen_json TEXT, last_seen_at TEXT,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  closed_at TEXT, closed_by TEXT, closed_reason TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_delegations_open ON delegations(task_id) WHERE status = 'open';
+CREATE TABLE IF NOT EXISTS delegation_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  delegation_id INTEGER NOT NULL, at TEXT NOT NULL, kind TEXT NOT NULL, detail TEXT
+);
+CREATE INDEX IF NOT EXISTS ix_delegation_events ON delegation_events(delegation_id, id);`);
+  },
+  // 7: AI auto-planning: cached analyses of work items, a record of each run and what you did with each proposal.
+  (d) => {
+    d.exec(`CREATE TABLE IF NOT EXISTS ai_analyses (
+  task_id INTEGER NOT NULL, fingerprint TEXT NOT NULL, analysis_json TEXT NOT NULL, model TEXT, at TEXT NOT NULL,
+  PRIMARY KEY (task_id, fingerprint)
+);
+CREATE TABLE IF NOT EXISTS planner_ai_runs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, mode TEXT NOT NULL,
+  items INTEGER NOT NULL DEFAULT 0, applied INTEGER NOT NULL DEFAULT 0, changed INTEGER NOT NULL DEFAULT 0, rejected INTEGER NOT NULL DEFAULT 0, usd REAL
+);
+CREATE TABLE IF NOT EXISTS planner_ai_feedback (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, run_id INTEGER NOT NULL, task_id INTEGER NOT NULL, proposed TEXT, final TEXT, outcome TEXT NOT NULL, at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_planner_ai_feedback_run ON planner_ai_feedback(run_id);`);
+  },
+  // 8: QA packs prepared for the QA automation repository (what was written where; the files themselves live in the worktree).
+  (d) => {
+    d.exec(`CREATE TABLE IF NOT EXISTS qa_packs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, by TEXT NOT NULL, specs TEXT NOT NULL, branch TEXT NOT NULL, worktree TEXT NOT NULL, base TEXT, files_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'prepared'
+);`);
+  },
+  // 9: comment watch (unread comments on followed work items) and asks (who you are waiting on). Local only.
+  (d) => {
+    d.exec(`CREATE TABLE IF NOT EXISTS comment_watch (
+  task_id INTEGER PRIMARY KEY, count_polled INTEGER NOT NULL DEFAULT 0, last_comment_id INTEGER, last_polled_at TEXT,
+  user_watch INTEGER NOT NULL DEFAULT 0, title TEXT, state TEXT, suggest_json TEXT, suggest_dismissed INTEGER
+);
+CREATE TABLE IF NOT EXISTS comment_events (
+  task_id INTEGER NOT NULL, comment_id INTEGER NOT NULL, author TEXT, at TEXT, snippet TEXT, reason TEXT, created_at TEXT NOT NULL, read_at TEXT,
+  PRIMARY KEY (task_id, comment_id)
+);
+CREATE INDEX IF NOT EXISTS ix_comment_events_unread ON comment_events(read_at);
+CREATE TABLE IF NOT EXISTS asks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, task_id INTEGER NOT NULL, person TEXT NOT NULL DEFAULT '', question TEXT NOT NULL, asked_at TEXT NOT NULL,
+  nudge_at TEXT NOT NULL, replied_at TEXT, replied_by TEXT, closed_at TEXT, source TEXT NOT NULL DEFAULT 'user'
+);
+CREATE INDEX IF NOT EXISTS ix_asks_task ON asks(task_id);`);
+  },
 ];
 const SCHEMA_VERSION = MIGRATIONS.length;
 
@@ -178,7 +239,7 @@ const rowToObj = (r) => r && ({
 
 const keyOf = (p) => String(p || '').replace(/\//g, '\\').toLowerCase();
 
-const COUNT_TABLES = { notes: 'notes WHERE deleted_at IS NULL', planDays: 'plan_days', planItems: 'plan_items', moves: 'moves', stashes: 'stashes', stashActions: 'stash_actions', clearances: 'clearances', aiCalls: 'ai_calls' };
+const COUNT_TABLES = { notes: 'notes WHERE deleted_at IS NULL', planDays: 'plan_days', planItems: 'plan_items', moves: 'moves', stashes: 'stashes', stashActions: 'stash_actions', delegations: 'delegations', aiRuns: 'planner_ai_runs', qaPacks: 'qa_packs', commentEvents: 'comment_events', asks: 'asks', clearances: 'clearances', aiCalls: 'ai_calls' };
 
 module.exports = {
   keyOf,
@@ -196,7 +257,35 @@ module.exports = {
   // A plain-text copy of everything that cannot be recreated (notes, plans, moves, stashes, clearances): readable even if the database file is lost.
   exportAll() {
     const all = (t) => db.prepare('SELECT * FROM ' + t + ' ORDER BY rowid').all();
-    return { exportedAt: new Date().toISOString(), schemaVersion: SCHEMA_VERSION, notes: all('notes'), planDays: all('plan_days'), planItems: all('plan_items'), moves: all('moves'), stashes: all('stashes'), stashActions: all('stash_actions'), clearances: all('clearances') };
+    return { exportedAt: new Date().toISOString(), schemaVersion: SCHEMA_VERSION, notes: all('notes'), planDays: all('plan_days'), planItems: all('plan_items'), moves: all('moves'), stashes: all('stashes'), stashActions: all('stash_actions'), delegations: all('delegations'), delegationEvents: all('delegation_events'), plannerLater: all('planner_later'), plannerTopics: all('planner_topics'), plannerAiRuns: all('planner_ai_runs'), plannerAiFeedback: all('planner_ai_feedback'), qaPacks: all('qa_packs'), commentWatch: all('comment_watch'), commentEvents: all('comment_events'), asks: all('asks'), plannerRevisions: all('planner_revisions'), clearances: all('clearances') };
+  },
+  /* ---- comment watch ---- */
+  cwGet(taskId) { return db.prepare('SELECT * FROM comment_watch WHERE task_id = ?').get(taskId) || null; },
+  cwAll() { return db.prepare('SELECT * FROM comment_watch').all(); },
+  cwSave(r) {
+    db.prepare(`INSERT INTO comment_watch (task_id, count_polled, last_comment_id, last_polled_at, user_watch, title, state, suggest_json, suggest_dismissed) VALUES (?,?,?,?,?,?,?,?,?)
+      ON CONFLICT(task_id) DO UPDATE SET count_polled=excluded.count_polled, last_comment_id=excluded.last_comment_id, last_polled_at=excluded.last_polled_at, user_watch=excluded.user_watch, title=excluded.title, state=excluded.state, suggest_json=excluded.suggest_json, suggest_dismissed=excluded.suggest_dismissed`)
+      .run(r.task_id, r.count_polled || 0, r.last_comment_id == null ? null : r.last_comment_id, r.last_polled_at || null, r.user_watch ? 1 : 0, r.title || null, r.state || null, r.suggest_json || null, r.suggest_dismissed == null ? null : r.suggest_dismissed);
+  },
+  cwUserWatched() { return db.prepare('SELECT task_id FROM comment_watch WHERE user_watch = 1').all().map((r) => r.task_id); },
+  cwEventAdd(taskId, e) {
+    return Number(db.prepare('INSERT OR IGNORE INTO comment_events (task_id, comment_id, author, at, snippet, reason, created_at) VALUES (?,?,?,?,?,?,?)').run(taskId, e.commentId, e.author || '', e.at || null, e.snippet || '', e.reason || null, new Date().toISOString()).changes);
+  },
+  cwEvents(taskId, unreadOnly) { return db.prepare('SELECT * FROM comment_events WHERE task_id = ?' + (unreadOnly ? ' AND read_at IS NULL' : '') + ' ORDER BY comment_id DESC LIMIT 50').all(taskId); },
+  cwUnreadAll() { return db.prepare('SELECT * FROM comment_events WHERE read_at IS NULL ORDER BY at DESC, comment_id DESC').all(); },
+  cwMarkRead(taskId) { const now = new Date().toISOString(); return Number(taskId == null ? db.prepare('UPDATE comment_events SET read_at = ? WHERE read_at IS NULL').run(now).changes : db.prepare('UPDATE comment_events SET read_at = ? WHERE task_id = ? AND read_at IS NULL').run(now, taskId).changes); },
+  askAdd(a) {
+    return Number(db.prepare('INSERT INTO asks (task_id, person, question, asked_at, nudge_at, source) VALUES (?,?,?,?,?,?)').run(a.taskId, a.person || '', a.question, new Date().toISOString(), a.nudgeAt, a.source || 'user').lastInsertRowid);
+  },
+  askGet(id) { return db.prepare('SELECT * FROM asks WHERE id = ?').get(id) || null; },
+  askList(openOnly, taskId) {
+    return db.prepare('SELECT * FROM asks WHERE 1=1' + (openOnly ? ' AND closed_at IS NULL' : '') + (taskId ? ' AND task_id = ' + Number(taskId) : '') + ' ORDER BY asked_at DESC, id DESC LIMIT 500').all();
+  },
+  askSet(id, f) {
+    const cols = ['replied_at', 'replied_by', 'closed_at', 'nudge_at']; const sets = []; const vals = [];
+    for (const c of cols) if (c in f) { sets.push(c + ' = ?'); vals.push(f[c]); }
+    if (!sets.length) return 0; vals.push(id);
+    return Number(db.prepare('UPDATE asks SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals).changes);
   },
   // Used for messages that arrive through the inbox: applied at most once per message id.
   noteAddFromInbox(msgId, taskId, section, body, author) {
@@ -325,6 +414,7 @@ module.exports = {
     const sets = []; const vals = [];
     for (const [k, c] of Object.entries(cols)) if (f[k] !== undefined) { sets.push(c + ' = ?'); vals.push(f[k]); }
     if (f.worktrees !== undefined) { sets.push('worktrees_json = ?'); vals.push(f.worktrees && f.worktrees.length ? JSON.stringify(f.worktrees) : null); }
+    if (f.snap !== undefined) { sets.push('snap_json = ?'); vals.push(f.snap ? JSON.stringify(f.snap) : null); }
     if (!sets.length) return false;
     return db.prepare('UPDATE plan_items SET ' + sets.join(', ') + ' WHERE id = ?').run(...vals, id).changes > 0;
   },
@@ -369,7 +459,7 @@ module.exports = {
     return db.prepare('UPDATE plan_days SET closed_at = ?, score_json = ? WHERE date = ?').run(new Date().toISOString(), JSON.stringify(score), date).changes > 0;
   },
   planRecent(n) {
-    return db.prepare('SELECT date, closed_at, score_json FROM plan_days ORDER BY date DESC LIMIT ?').all(n || 14).map((d) => {
+    return db.prepare('SELECT date, closed_at, score_json FROM plan_days WHERE date <= ? ORDER BY date DESC LIMIT ?').all(new Date().toLocaleDateString('en-CA'), n || 14).map((d) => {
       let score = null; try { score = d.score_json ? JSON.parse(d.score_json) : null; } catch { /* keep null */ }
       return { date: d.date, closedAt: d.closed_at, score };
     });
@@ -412,6 +502,138 @@ module.exports = {
     return db.prepare('UPDATE stashes SET handled_at = ?, handled_by = ?, handled_note = ? WHERE id = ? AND handled_at IS NULL')
       .run(new Date().toISOString(), user, note || null, id).changes > 0;
   },
+  /* ---- work planner ---- */
+  // Task ids that already have an open line today or later: they are not offered again.
+  plannerScheduledIds(fromDate) {
+    return new Set(db.prepare("SELECT DISTINCT task_id FROM plan_items WHERE status = 'todo' AND task_id IS NOT NULL AND date >= ?").all(fromDate).map((r) => r.task_id));
+  },
+  plannerItems(fromDate, toDate) { // every line of the days shown on the board
+    return db.prepare('SELECT * FROM plan_items WHERE date >= ? AND date <= ? ORDER BY date, pos, id').all(fromDate, toDate).map(planItemObj);
+  },
+  // Puts a work item on a day (a normal plan line, so Today's plan shows it). Returns { id } or { existing } when the task already has an open line from `fromDate` on.
+  plannerAdd(date, fromDate, taskId, text, snap, extra) {
+    const now = new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const have = db.prepare("SELECT id, date FROM plan_items WHERE status = 'todo' AND task_id = ? AND date >= ? ORDER BY date LIMIT 1").get(taskId, fromDate);
+      if (have) { db.exec('ROLLBACK'); return { existing: { id: have.id, date: have.date } }; }
+      if (!db.prepare('SELECT 1 FROM plan_days WHERE date = ?').get(date)) db.prepare("INSERT INTO plan_days (date, raw_text, created_at, updated_at) VALUES (?, '', ?, ?)").run(date, now, now);
+      const pos = (db.prepare('SELECT COALESCE(MAX(pos),0) AS m FROM plan_items WHERE date = ?').get(date).m || 0) + 1;
+      const e = extra || {};
+      const id = Number(db.prepare("INSERT INTO plan_items (date, pos, text, kind, task_id, confidence, status, snap_json, carried_from) VALUES (?,?,?,?,?,?,?,?,?)")
+        .run(date, pos, text, e.kind || 'task', taskId, null, 'todo', snap ? JSON.stringify(snap) : null, null).lastInsertRowid);
+      db.prepare('UPDATE plan_days SET updated_at = ? WHERE date = ?').run(now, date);
+      db.exec('COMMIT');
+      return { id };
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
+  },
+  // Moves an open line to another day, optionally to a position (1 = first). Lines of the target day are renumbered.
+  plannerMove(id, toDate, position) {
+    const now = new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const it = db.prepare('SELECT * FROM plan_items WHERE id = ?').get(id);
+      if (!it) { db.exec('ROLLBACK'); return { error: 'notfound' }; }
+      if (it.status !== 'todo') { db.exec('ROLLBACK'); return { error: 'notopen' }; }
+      if (!db.prepare('SELECT 1 FROM plan_days WHERE date = ?').get(toDate)) db.prepare("INSERT INTO plan_days (date, raw_text, created_at, updated_at) VALUES (?, '', ?, ?)").run(toDate, now, now);
+      const others = db.prepare('SELECT id FROM plan_items WHERE date = ? AND id <> ? ORDER BY pos, id').all(toDate, id).map((r) => r.id);
+      const at = position && position >= 1 ? Math.min(position - 1, others.length) : others.length;
+      others.splice(at, 0, id);
+      db.prepare('UPDATE plan_items SET date = ? WHERE id = ?').run(toDate, id);
+      const set = db.prepare('UPDATE plan_items SET pos = ? WHERE id = ?');
+      others.forEach((x, i) => set.run(i + 1, x));
+      db.prepare('UPDATE plan_days SET updated_at = ?, closed_at = NULL WHERE date = ?').run(now, toDate);
+      db.exec('COMMIT');
+      return { ok: true, from: it.date };
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
+  },
+  plannerSetOrder(date, orderedIds) { // lines named in orderedIds come first, in that order; the rest keep their relative order after them
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const rows = db.prepare('SELECT id FROM plan_items WHERE date = ? ORDER BY pos, id').all(date).map((r) => r.id);
+      const first = orderedIds.filter((x) => rows.includes(x));
+      const all = [...first, ...rows.filter((x) => !first.includes(x))];
+      const set = db.prepare('UPDATE plan_items SET pos = ? WHERE id = ?'); all.forEach((x, i) => set.run(i + 1, x));
+      db.exec('COMMIT'); return all.length;
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
+  },
+  laterList() { return db.prepare('SELECT task_id, added_at FROM planner_later ORDER BY added_at, task_id').all(); },
+  laterAdd(taskId) { return db.prepare('INSERT OR IGNORE INTO planner_later (task_id, added_at) VALUES (?, ?)').run(taskId, new Date().toISOString()).changes > 0; },
+  laterRemove(taskId) { return db.prepare('DELETE FROM planner_later WHERE task_id = ?').run(taskId).changes > 0; },
+  /* ---- QA packs ---- */
+  qaPackAdd(p) { return Number(db.prepare('INSERT INTO qa_packs (at, by, specs, branch, worktree, base, files_json) VALUES (?,?,?,?,?,?,?)').run(new Date().toISOString(), p.by, JSON.stringify(p.specs), p.branch, p.worktree, p.base || null, JSON.stringify(p.files)).lastInsertRowid); },
+  qaPackList(n) { return db.prepare('SELECT id, at, by, specs, branch, worktree, base, files_json, status FROM qa_packs ORDER BY id DESC LIMIT ?').all(n || 20).map((r) => ({ id: r.id, at: r.at, by: r.by, specs: JSON.parse(r.specs), branch: r.branch, worktree: r.worktree, base: r.base, files: JSON.parse(r.files_json), status: r.status })); },
+  /* ---- AI auto-planning ---- */
+  analysisGet(taskId, fingerprint) {
+    const r = db.prepare('SELECT analysis_json, model, at FROM ai_analyses WHERE task_id = ? AND fingerprint = ?').get(taskId, fingerprint);
+    if (!r) return null;
+    try { return { ...JSON.parse(r.analysis_json), _model: r.model, _at: r.at }; } catch { return null; }
+  },
+  analysisPut(taskId, fingerprint, analysis, model) {
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO ai_analyses (task_id, fingerprint, analysis_json, model, at) VALUES (?,?,?,?,?) ON CONFLICT(task_id, fingerprint) DO UPDATE SET analysis_json = excluded.analysis_json, model = excluded.model, at = excluded.at')
+      .run(taskId, fingerprint, JSON.stringify(analysis), model || null, now);
+    db.prepare('DELETE FROM ai_analyses WHERE at < ?').run(new Date(Date.now() - 60 * 86400000).toISOString()); // a cache, kept 60 days
+  },
+  aiRunAdd(mode, items, usd) { return Number(db.prepare('INSERT INTO planner_ai_runs (at, mode, items, usd) VALUES (?,?,?,?)').run(new Date().toISOString(), mode, items, usd == null ? null : usd).lastInsertRowid); },
+  aiRunGet(id) { return db.prepare('SELECT id, at, mode, items, applied, changed, rejected, usd FROM planner_ai_runs WHERE id = ?').get(id) || null; },
+  aiRunFinish(id, applied, changed, rejected, rows) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.prepare('UPDATE planner_ai_runs SET applied = ?, changed = ?, rejected = ? WHERE id = ?').run(applied, changed, rejected, id);
+      const st = db.prepare('INSERT INTO planner_ai_feedback (run_id, task_id, proposed, final, outcome, at) VALUES (?,?,?,?,?,?)'); const at = new Date().toISOString();
+      for (const r of rows) st.run(id, r.taskId, r.proposed || null, r.final || null, r.outcome, at);
+      db.exec('COMMIT');
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
+  },
+  aiRunList(n) { return db.prepare('SELECT id, at, mode, items, applied, changed, rejected, usd FROM planner_ai_runs ORDER BY id DESC LIMIT ?').all(n || 20); },
+  aiFeedbackList(runId) { return db.prepare('SELECT task_id AS taskId, proposed, final, outcome FROM planner_ai_feedback WHERE run_id = ? ORDER BY id').all(runId); },
+  topicList() { return db.prepare('SELECT id, keyword, created_at AS createdAt, created_by AS createdBy FROM planner_topics ORDER BY keyword').all(); },
+  topicAdd(keyword, by, max) { // null when it already exists (any letter case) or the limit is reached
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (db.prepare('SELECT COUNT(*) AS n FROM planner_topics').get().n >= max) { db.exec('ROLLBACK'); return { full: true }; }
+      const r = db.prepare('INSERT OR IGNORE INTO planner_topics (keyword, created_at, created_by) VALUES (?,?,?)').run(keyword, new Date().toISOString(), by);
+      db.exec('COMMIT'); return r.changes ? { id: Number(r.lastInsertRowid) } : { exists: true };
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
+  },
+  topicRemove(id) { return db.prepare('DELETE FROM planner_topics WHERE id = ?').run(id).changes > 0; },
+  revisionGet(date) { return db.prepare('SELECT date, at, new_count AS newCount, changed_count AS changedCount FROM planner_revisions WHERE date = ?').get(date) || null; },
+  revisionSet(date, newCount, changedCount) {
+    db.prepare('INSERT INTO planner_revisions (date, at, new_count, changed_count) VALUES (?,?,?,?) ON CONFLICT(date) DO UPDATE SET at = excluded.at, new_count = excluded.new_count, changed_count = excluded.changed_count')
+      .run(date, new Date().toISOString(), newCount, changedCount);
+  },
+  delegationAdd(d, by) { // null when the task already has an open delegation
+    const now = d.createdAt || new Date().toISOString();
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      if (db.prepare("SELECT 1 FROM delegations WHERE task_id = ? AND status = 'open'").get(d.taskId)) { db.exec('ROLLBACK'); return null; }
+      const id = Number(db.prepare(`INSERT INTO delegations (task_id, person, mode, note, expect_by, check_every_days, next_check, wake_after_days, created_at, created_by, last_seen_json, last_seen_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(d.taskId, d.person, d.mode, d.note || null, d.expectBy || null, d.checkEveryDays || null, d.nextCheck || null, d.wakeAfterDays || null, now, by,
+        d.lastSeen ? JSON.stringify(d.lastSeen) : null, d.lastSeen ? now : null).lastInsertRowid);
+      db.prepare('INSERT INTO delegation_events (delegation_id, at, kind, detail) VALUES (?,?,?,?)').run(id, now, 'delegated', d.person + ' (' + d.mode + ')' + (d.note ? ': ' + d.note : ''));
+      db.exec('COMMIT'); return id;
+    } catch (err) { db.exec('ROLLBACK'); throw err; }
+  },
+  delegationGet(id) { const r = db.prepare('SELECT * FROM delegations WHERE id = ?').get(id); return r && delegationObj(r); },
+  delegationList(status) { return db.prepare('SELECT * FROM delegations' + (status ? ' WHERE status = ?' : '') + ' ORDER BY id DESC').all(...(status ? [status] : [])).map(delegationObj); },
+  delegationByTask(taskId) { const r = db.prepare("SELECT * FROM delegations WHERE task_id = ? AND status = 'open'").get(taskId); return r && delegationObj(r); },
+  delegationUpdate(id, f) {
+    const cols = { person: 'person', mode: 'mode', note: 'note', expectBy: 'expect_by', checkEveryDays: 'check_every_days', nextCheck: 'next_check', wakeAfterDays: 'wake_after_days' };
+    const sets = []; const vals = [];
+    for (const [k, c] of Object.entries(cols)) if (f[k] !== undefined) { sets.push(c + ' = ?'); vals.push(f[k]); }
+    if (f.lastSeen !== undefined) { sets.push('last_seen_json = ?', 'last_seen_at = ?'); vals.push(f.lastSeen ? JSON.stringify(f.lastSeen) : null, new Date().toISOString()); }
+    if (!sets.length) return false;
+    return db.prepare("UPDATE delegations SET " + sets.join(', ') + " WHERE id = ? AND status = 'open'").run(...vals, id).changes > 0;
+  },
+  delegationClose(id, by, reason) {
+    const now = new Date().toISOString();
+    const ok = db.prepare("UPDATE delegations SET status = 'closed', closed_at = ?, closed_by = ?, closed_reason = ? WHERE id = ? AND status = 'open'").run(now, by, reason, id).changes > 0;
+    if (ok) db.prepare('INSERT INTO delegation_events (delegation_id, at, kind, detail) VALUES (?,?,?,?)').run(id, now, 'closed', reason);
+    return ok;
+  },
+  eventAdd(delegationId, kind, detail) { db.prepare('INSERT INTO delegation_events (delegation_id, at, kind, detail) VALUES (?,?,?,?)').run(delegationId, new Date().toISOString(), kind, detail || null); },
+  eventList(delegationId, limit) { return db.prepare('SELECT id, at, kind, detail FROM delegation_events WHERE delegation_id = ? ORDER BY id DESC LIMIT ?').all(delegationId, limit || 50); },
   /* ---- stash manager history ---- */
   stashActionAdd(a) {
     const files = Array.isArray(a.files) ? a.files : [];
@@ -439,7 +661,8 @@ module.exports = {
 
 function planItemObj(r) {
   let links = []; try { links = r.worktrees_json ? JSON.parse(r.worktrees_json) : []; } catch { /* keep empty */ }
-  return { worktreeLinks: links, id: r.id, date: r.date, pos: r.pos, text: r.text, kind: r.kind, taskId: r.task_id, confidence: r.confidence, status: r.status, doneAt: r.done_at, skipReason: r.skip_reason,
+  let snap = null; try { snap = r.snap_json ? JSON.parse(r.snap_json) : null; } catch { /* none */ }
+  return { snap, worktreeLinks: links, id: r.id, date: r.date, pos: r.pos, text: r.text, kind: r.kind, taskId: r.task_id, confidence: r.confidence, status: r.status, doneAt: r.done_at, skipReason: r.skip_reason,
     carriedFrom: r.carried_from, draft: r.draft_state === 'none' && !r.draft_title ? null : { type: r.draft_type, title: r.draft_title, body: r.draft_body, state: r.draft_state, requestedAt: r.requested_at, createdTaskId: r.created_task_id } };
 }
 function noteObj(r) {
@@ -450,6 +673,11 @@ function moveObj(r) {
   return { id: r.id, wtPath: r.wt_path, branch: r.branch, repoKey: r.repo_key, taskId: r.task_id, livePath: r.live_path,
     prevLiveBranch: r.prev_live_branch, startedBy: r.started_by, startedAt: r.started_at, finishedAt: r.finished_at,
     status: r.status, summary: r.summary, patchPath: r.patch_path, steps };
+}
+function delegationObj(r) {
+  let lastSeen = null; try { lastSeen = r.last_seen_json ? JSON.parse(r.last_seen_json) : null; } catch { /* none */ }
+  return { id: r.id, taskId: r.task_id, person: r.person, mode: r.mode, note: r.note, expectBy: r.expect_by, checkEveryDays: r.check_every_days, nextCheck: r.next_check, wakeAfterDays: r.wake_after_days,
+    createdAt: r.created_at, createdBy: r.created_by, lastSeen, lastSeenAt: r.last_seen_at, status: r.status, closedAt: r.closed_at, closedBy: r.closed_by, closedReason: r.closed_reason };
 }
 function stashActionObj(r) {
   let files = []; try { files = JSON.parse(r.files || '[]'); } catch { /* keep empty */ }

@@ -38,30 +38,30 @@ const dayAge = (iso) => Math.floor((Date.now() - Date.parse(iso)) / 86400000);
 
 function smRowHtml(r) {
   const v = r.verdict; const k = smKey(r);
-  const files = r.files ? '<b>' + r.fileCount + '</b> file(s)' + (r.untrackedCount ? ' <span class="muted">(' + r.untrackedCount + ' new)</span>' : '') + '<div class="cell-sub">+' + r.added + ' −' + r.removed + '</div>' : '<span class="muted">—</span>';
-  const verdict = v ? badge(v.label, VERDICT_KIND[v.kind] || 'neu') + '<div class="cell-sub" style="max-width:260px">' + esc(v.why) + '</div>'
-    : '<span class="muted">Not analysed</span> <button type="button" class="linkbtn" data-sm-analyse="' + esc(k) + '">Analyse</button>';
-  const hub = r.hub ? '<div>' + badge('Made by Move to live', 'info') + (r.hub.handledAt ? '' : ' <button type="button" class="linkbtn" data-sm-handled="' + r.hub.id + '">Mark handled</button>') + '</div>' : '';
+  const files = r.files ? '<div class="cell-main"><b>' + r.fileCount + '</b> file' + (r.fileCount === 1 ? '' : 's') + (r.untrackedCount ? ' <span class="muted">(' + r.untrackedCount + ' new)</span>' : '') + '</div><div class="cell-sub">+' + r.added + ' −' + r.removed + '</div>' : '<span class="muted">—</span>';
+  const verdict = '<div class="badges">' + (v ? badge(v.label, VERDICT_KIND[v.kind] || 'neu') : '<span class="muted">Not analysed</span>') + (r.hub ? badge('Made by Move to live', 'info') : '') + '</div>';
+  const why = (v ? esc(v.why) : '<button type="button" class="linkbtn" data-sm-analyse="' + esc(k) + '">Analyse this one</button>')
+    + (r.hub && !r.hub.handledAt ? ' <button type="button" class="linkbtn" data-sm-handled="' + r.hub.id + '">Mark handled</button>' : '');
   return '<tr><td><input type="checkbox" data-sel="' + esc(k) + '" aria-label="Select this stash"' + (S.sm.sel.has(k) ? ' checked' : '') + '></td>'
-    + '<td style="max-width:340px"><div class="cell-main">' + esc(r.note || r.subject) + '</div><div class="cell-sub">' + esc(r.repoKey) + ' · <span class="mono">' + esc(r.branch || '(no branch)') + '</span>'
-    + (r.taskId ? ' · <a href="#" data-open="' + r.taskId + '">#' + r.taskId + '</a>' : '') + '</div>' + hub
-    + (r.files ? '<details><summary>Files</summary><div class="mono">' + r.files.map(esc).join('<br>') + (r.fileCount > r.files.length ? '<br>…' : '') + '</div></details>' : '') + '</td>'
-    + '<td class="nowrap" title="' + esc(full(r.createdAt)) + '">' + esc(ago(r.createdAt)) + '<div class="cell-sub">' + r.ref + '</div></td>'
-    + '<td class="nowrap">' + files + '</td><td>' + verdict + '</td>'
-    + '<td class="r"><div class="acts"><button type="button" class="btn sm" data-sm-diff="' + esc(k) + '">Diff</button> <button type="button" class="btn sm" data-sm-rework="' + esc(k) + '">Re-work…</button> <button type="button" class="btn sm" data-sm-clear="' + esc(k) + '">Clear…</button></div></td></tr>';
+    + '<td title="' + esc((r.branch || '(no branch)') + ' · ' + r.repoKey) + '"><div class="cell-main">' + esc(r.note || r.subject) + '</div><div class="cell-sub">' + esc(r.repoKey) + ' · <span class="mono">' + esc(r.branch || '(no branch)') + '</span>'
+    + (r.taskId ? ' · <a href="#" data-open="' + r.taskId + '">#' + r.taskId + '</a>' : '') + '</div></td>'
+    + '<td title="' + esc(full(r.createdAt)) + '"><div class="cell-main">' + esc(ago(r.createdAt)) + '</div><div class="cell-sub">' + r.ref + '</div></td>'
+    + '<td>' + files + '</td><td>' + verdict + '</td><td class="col-note">' + why + '</td>'
+    + '<td class="r"><button type="button" class="btn sm" data-sm-diff="' + esc(k) + '">Diff</button> <button type="button" class="btn sm" data-sm-rework="' + esc(k) + '">Re-work…</button> <button type="button" class="btn sm" data-sm-clear="' + esc(k) + '">Clear…</button></td></tr>';
 }
 
 function renderStashMgr() {
   const m = S.sm; const box = $('stashBody'); const d = m.data;
-  if (!d) { box.innerHTML = m.err ? '<div class="note bad">' + esc(m.err) + '</div>' : '<div class="skel" style="height:60px"></div><div class="skel" style="height:16px;width:70%"></div>'; return; }
+  if (!d) { box.innerHTML = m.err ? errorBar({ title: 'The stash list didn\'t load.', detail: m.err, retry: 'stash' }) : skeleton('chart', 1) + skeleton('rows', 6); return; }
   const trash = d.trash; const all = smRows(); const analysed = all.filter((r) => r.verdict).length;
   let h = '<div class="toolbar"><div class="seg" role="group" aria-label="Stash section">'
     + [['stashes', 'Stashes (' + d.total + ')'], ['trash', 'Trash (' + trash.length + ')'], ['history', 'History']].map((t) => '<button type="button" data-sm-tab="' + t[0] + '" aria-pressed="' + (m.tab === t[0]) + '">' + t[1] + '</button>').join('')
     + '</div><span class="muted">' + analysed + ' of ' + all.length + ' analysed</span><span style="flex:1"></span><button type="button" class="btn sm" data-sm-reload="1">Refresh</button></div>';
   if (m.tab === 'trash') h += trashHtml(trash);
   else if (m.tab === 'history') h += historyHtml(d.history);
-  else h += stashesHtml(all);
+  else h = h + '<div id="vizStash" style="margin-bottom:16px"></div>' + stashesHtml(all);
   box.innerHTML = h;
+  if (m.tab === 'stashes' && typeof vizStash === 'function') { try { vizStash($('vizStash'), all); } catch (e) { $('vizStash').textContent = ''; } }
   if (m.tab === 'stashes') autoAnalyse();
 }
 
@@ -81,8 +81,8 @@ function stashesHtml(all) {
     : (pending ? '<button type="button" class="btn sm" data-sm-analyse-all="1">Analyse the ' + pending + ' shown that are not analysed</button>' : '<span class="muted">Everything shown is analysed.</span>'))
     + '<span style="flex:1"></span>' + (sel.length ? '<span><b>' + sel.length + '</b> selected</span> <button type="button" class="btn sm danger" data-sm-clear-sel="1">Clear selected…</button> <button type="button" class="btn sm" data-sm-unsel="1">Unselect</button>' : '')
     + (rows.length ? ' <button type="button" class="btn sm" data-sm-sel-shown="1">Select the ' + rows.length + ' shown</button>' : '') + '</div>';
-  h += '<div class="card"><div class="scroll"><table class="grid"><thead><tr><th style="width:28px"></th><th>Stash</th><th>Made</th><th>Changes</th><th>Verdict</th><th class="r">Action</th></tr></thead><tbody>'
-    + (page.map(smRowHtml).join('') || '<tr><td colspan="6"><div class="empty"><b>' + (all.length ? 'No stash matches these filters' : 'No stashes in any clone') + '</b>' + (all.length ? 'Change or clear the filters above.' : 'Nothing to review.') + '</div></td></tr>')
+  h += '<div class="card"><div class="scroll"><table class="grid" data-drop="date,sync,text,short,note"><thead><tr><th style="width:28px"></th><th>Stash</th><th>Made</th><th>Changes</th><th>Verdict</th><th>Why</th><th class="r">Action</th></tr></thead><tbody>'
+    + (page.map(smRowHtml).join('') || '<tr><td colspan="7"><div class="empty"><b>' + (all.length ? 'No stash matches these filters' : 'No stashes in any clone') + '</b>' + (all.length ? 'Change or clear the filters above.' : 'Nothing to review.') + '</div></td></tr>')
     + '</tbody></table></div><div class="foot pager-bar"><span>Clearing is recoverable: a copy stays in the Trash tab until you empty it. Verdicts are advice from comparing with main; nothing is cleared automatically.</span><div class="pager">' + pagerHtml + '</div></div></div>';
   return h;
 }
@@ -90,9 +90,9 @@ function stashesHtml(all) {
 function trashHtml(trash) {
   const m = S.sm;
   const rows = trash.map((t) => '<tr><td><input type="checkbox" data-tsel="' + esc(t.repoPath + '|' + t.hash) + '" aria-label="Select"' + (m.trashSel.has(t.repoPath + '|' + t.hash) ? ' checked' : '') + '></td>'
-    + '<td style="max-width:420px"><div class="cell-main">' + esc((t.message || '').replace(/^(WIP on|On) [^:]+:\s*/, '') || t.hash.slice(0, 7)) + '</div><div class="cell-sub">' + esc(t.repoKey) + ' · ' + t.fileCount + ' file(s)</div>'
-    + '<div class="cell-sub mono path">' + esc(t.patchPath || '') + '</div></td>'
-    + '<td class="nowrap" title="' + esc(full(t.at)) + '">' + esc(ago(t.at)) + '<div class="cell-sub">' + esc(t.by) + '</div></td><td style="max-width:340px">' + esc(t.reason || '') + '</td>'
+    + '<td title="' + esc(t.patchPath || '') + '"><div class="cell-main">' + esc((t.message || '').replace(/^(WIP on|On) [^:]+:\s*/, '') || t.hash.slice(0, 7)) + '</div><div class="cell-sub">' + esc(t.repoKey) + ' · ' + t.fileCount + ' file(s)</div>'
+    + '</td>'
+    + '<td class="nowrap" title="' + esc(full(t.at)) + '">' + esc(ago(t.at)) + '<div class="cell-sub">' + esc(t.by) + '</div></td><td class="col-note">' + esc(t.reason || '') + '</td>'
     + '<td class="r nowrap"><button type="button" class="btn sm" data-sm-restore="' + esc(t.repoPath + '|' + t.hash) + '">Restore</button></td></tr>').join('');
   const sel = m.trashSel.size;
   return '<div class="toolbar"><span class="muted">Cleared stashes are kept here (a hidden git ref and a patch file). Restore puts one back on the stash list.</span><span style="flex:1"></span>'
@@ -105,8 +105,8 @@ function historyHtml(hist) {
   return '<div class="card"><div class="scroll"><table class="grid"><thead><tr><th>When</th><th>What</th><th>Stash</th><th>Reason or result</th></tr></thead><tbody>'
     + (hist.map((a) => { const b = ACTION_BADGE[a.action] || [a.action, 'neu'];
       return '<tr><td class="nowrap" title="' + esc(full(a.at)) + '">' + esc(ago(a.at)) + '<div class="cell-sub">' + esc(a.by) + '</div></td><td>' + badge(b[0], b[1]) + '</td>'
-        + '<td style="max-width:420px"><div class="cell-main">' + esc((a.message || '').replace(/^(WIP on|On) [^:]+:\s*/, '') || a.hash.slice(0, 7)) + '</div><div class="cell-sub">' + esc(a.repoKey) + ' · ' + a.fileCount + ' file(s) · <span class="mono">' + a.hash.slice(0, 10) + '</span></div></td>'
-        + '<td>' + esc(a.reason || '') + (a.worktree ? '<div class="mono path">' + esc(a.worktree) + '</div>' : '') + '</td></tr>'; }).join('')
+        + '<td><div class="cell-main">' + esc((a.message || '').replace(/^(WIP on|On) [^:]+:\s*/, '') || a.hash.slice(0, 7)) + '</div><div class="cell-sub">' + esc(a.repoKey) + ' · ' + a.fileCount + ' file(s) · <span class="mono">' + a.hash.slice(0, 10) + '</span></div></td>'
+        + '<td class="col-note" title="' + esc(a.worktree || '') + '">' + esc(a.reason || '') + '</td></tr>'; }).join('')
       || '<tr><td colspan="4"><div class="empty"><b>No stash actions yet</b>Clears, restores and re-works are listed here with their reasons.</div></td></tr>') + '</tbody></table></div></div>';
 }
 

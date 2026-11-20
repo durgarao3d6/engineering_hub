@@ -24,7 +24,17 @@
   "coWorkerNames": ["Alice", "Bob", "Carol", "Dave", "Erin", "Frank", "Grace", "Heidi"],
 
   "azureDevOps": { "enabled": true },
+  "commentWatch": { "enabled": true, "pollMinutes": 10, "hoursFrom": 7, "hoursTo": 20, "nudgeDays": 2, "maxWatched": 400 },
+  "planner": { "dayCapacity": 5, "workingDays": [1, 2, 3, 4, 5], "horizonDays": 5, "monitorEveryDays": 2, "wakeAfterWorkingDays": 10, "searchTypes": [], "ai": { "enabled": true, "maxItems": 30, "includeDiscussion": true, "commentsPerItem": 8, "analyseModel": "", "arrangeModel": "", "maxBudgetUsd": 0 } },
   "botPullRequests": { "repos": [], "titlePatterns": ["^(NuGet Package Update|Npm Package Update|Bump |Dependabot)"] },
+
+  "testing": {
+    "specsDir": "", "evidenceDir": "", "worktreeRoot": "",
+    "names": { "source": "Source specs", "qa": "QA repository" },
+    "evidenceCommand": "",
+    "qa": { "path": "", "specsDir": "tests/flows", "libDir": "tests/lib", "cardsDir": "docs/flow-cards", "inventoryFile": "docs/test-inventory.md", "inventoryHeading": "", "inventorySummary": "",
+      "defaultTags": ["@regression"], "importFrom": "../lib/", "importTo": "../lib/", "serialTimeoutMs": 180000 }
+  },
 
   "usage": { "file": "", "hubBuildPrompt": "" },
   "sessions": { "projectsDir": "" },
@@ -33,6 +43,6 @@
     "configFile": "",
     "guardFiles": [],
     "settingsFiles": [],
-    "localPlatform": { "flowsDir": "", "evidenceDir": "" }
+    "flowTests": { "flowsDir": "", "evidenceDir": "" }
   }
 }

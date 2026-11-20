@@ -13,11 +13,11 @@ const planner = require(HUBROOT + '/planner.js');
 
 const pool = [
   { id: 5945, type: 'Bug', state: 'Active', title: 'Sample: Address line autolist displays duplicate entries', repos: ['portal'] },
-  { id: 8246, type: 'User Story', state: 'Active', title: 'Dynamic menu and user profile integration for Customer Portal', repos: ['portal', 'platformsecurity'] },
+  { id: 8246, type: 'User Story', state: 'Active', title: 'Dynamic menu and user profile integration for Billing Portal', repos: ['portal', 'security'] },
 ];
 const wts = [
   { path: 'E:\\wt\\portal\\alice-5945', repoKey: 'portal', layer: 'ui', branch: 'dev/5945-address-autolist', taskId: 5945, isMain: false, where: 'Uncommitted in worktree', dirtyFiles: 3, lastCommit: { subject: 'wip autolist' } },
-  { path: 'E:\\Backend\\PlatformSecurity', repoKey: 'platformsecurity', layer: 'backend', branch: 'dev/5945-security-lookup', taskId: 5945, isMain: true, where: 'Live checkout', dirtyFiles: 1, lastCommit: { subject: 'lookup' } },
+  { path: 'E:\\Backend\\Security', repoKey: 'security', layer: 'backend', branch: 'dev/5945-security-lookup', taskId: 5945, isMain: true, where: 'Live checkout', dirtyFiles: 1, lastCommit: { subject: 'lookup' } },
   { path: 'E:\\UI\\Order\\alice-responsive_poc', repoKey: 'order', layer: 'ui', branch: 'dev/responsive_poc', taskId: null, isMain: false, where: 'Uncommitted in worktree', dirtyFiles: 57, lastCommit: { subject: 'responsive layout' } },
   { path: 'E:\\Backend\\Portal', repoKey: 'portal', layer: 'backend', branch: 'main', taskId: null, isMain: true, where: 'Live checkout', dirtyFiles: 0 },
 ];
@@ -33,7 +33,7 @@ const calls = () => (fs.existsSync(process.env.STUB_LOG) ? fs.readFileSync(proce
   let p = await planner.propose('Work on #5945 address autolist\nMake the responsive layout changes\nWrite the quotes retry handling', { pool, worktrees: wts, contextFn });
   const a = p.items[0];
   check('line with a work item links every worktree whose branch carries its id', a.taskId === 5945 && a.worktrees.length === 2, a.worktrees.map((w) => w.repoKey + ':' + w.source).join(','));
-  check('both repos are present (UI worktree + backend live checkout)', ['portal', 'platformsecurity'].every((r) => a.worktrees.some((w) => w.repoKey === r)));
+  check('both repos are present (UI worktree + backend live checkout)', ['portal', 'security'].every((r) => a.worktrees.some((w) => w.repoKey === r)));
   check('automatic links are marked as task links', a.worktrees.every((w) => w.source === 'task'));
   check('link carries the live state of each worktree', a.worktrees[0].dirtyFiles === 3 && a.worktrees[0].where === 'Uncommitted in worktree');
 

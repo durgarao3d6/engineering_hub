@@ -1,0 +1,148 @@
+const HUBROOT = require('path').resolve(__dirname, '..').replace(/\\/g, '/'); require('./_config')();
+// Testing phase: reading specs, the QA-style rewrite, flow cards, Test Plans drafts, inventory rows, QA status, preview and the pack builder.
+// Everything runs on throwaway folders and repositories; nothing of yours (and nothing in the real QA repository) is read or written.
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'qatest-'));
+process.env.HUB_DATA_DIR = path.join(dir, 'data');
+Object.assign(process.env, { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' });
+const sp = require(HUBROOT + '/lib/specparse.js');
+const T = require(HUBROOT + '/testing.js');
+const store = require(HUBROOT + '/store.js');
+
+let fails = 0;
+const check = (n, ok, x) => { console.log((ok ? 'PASS ' : 'FAIL ') + n + (x ? '  ' + x : '')); if (!ok) fails++; };
+const rejects = async (fn) => { try { await fn(); return null; } catch (e) { return e; } };
+const g = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const w = (p, s) => { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, s); };
+const qa = { importFrom: '../lib/', importTo: '../../shared/flows/', serialTimeoutMs: 180000, specsDir: 'tests/flows', libDir: 'shared/flows', cardsDir: 'docs/flow-cards', inventoryFile: 'docs/test-inventory.md', defaultTags: ['@regression', '@flows', '@api'] };
+
+const FX = require('./_qafixture.js').build(dir);
+const { LP, LPS, LPL, QA, QAO, evid } = FX; const { spec1, spec2, spec3, spec4, spec5, spec6, spec7 } = FX.specs;
+const ported = (t, tags) => T.portText(t, qa, tags);
+
+(async () => {
+  console.log('--- reading a spec');
+  const p = sp.parse(spec1, '01-cancel.spec.ts');
+  check('header, covers, title, steps and expectations are read', /never makes one/.test(p.header) && p.header.split('\n\n').length === 2 && p.tests.length === 1 && p.tests[0].requirementIds.join() === 'PCX-4,CAN-10' && p.tests[0].source === 'PlatformSpec 7.3 X2; TP spec 14.12 CAN-10' && p.tests[0].steps.length === 3);
+  check('a template in a step title becomes readable', p.tests[0].steps[1].title === 'PUT /transports with status Cancelled for <loaded.number>', p.tests[0].steps[1].title);
+  check('expectations use the author\'s own message when there is one, plain words otherwise', p.tests[0].steps[0].expects.join() === 'r.status is 200' && p.tests[0].steps[2].expects.join('|') === 'r.status is 409|the refusal says why');
+  check('skip reasons and libraries are found', p.tests[0].skips[0] === 'no live transport carrying freight exists on this platform' && p.libs.join() === 'api,platform,spec');
+  check('bug id, UI flag, product issues and the platform libraries', sp.parse(spec7, 'bug-9001-thing.spec.ts').bugId === 9001 && sp.parse(spec7, 'x.spec.ts').tests[0].productIssues[0] === 'AB#9001: wrong thing' && sp.parse(spec6, '06-browser.ui.spec.ts').isUi === true && sp.parse(spec4, '04.spec.ts').usesGremlin === true);
+  check('ids come from the title when there is no covers()', sp.parse("test('[X-1 Y-2] t', async () => {});", 'a.spec.ts').tests[0].requirementIds.join() === 'X-1,Y-2');
+
+  console.log('--- the QA-style rewrite');
+  const ptxt = T.portText(spec1, qa, ['@regression', '@api']);
+  check('library imports point into QA\'s copy', /from '\.\.\/\.\.\/shared\/flows\/api'/.test(ptxt) && !/\.\.\/lib\//.test(ptxt));
+  check('the tag list and the serial setting follow the imports, in QA\'s wording', /from '\.\.\/\.\.\/shared\/flows\/spec';\n\n\/\*\* Suite tags for every test in this file \(level \+ area\)\. \*\/\nconst TAGS = \['@regression', '@api'\];\n\n\/\/ Tests share state, so they run serially: in file order on one worker, and a failure skips the rest\.\ntest\.describe\.configure\(\{ mode: 'serial', timeout: 180_000 \}\);/.test(ptxt), ptxt.slice(0, 700));
+  check('covers() gets the tags (same line), and a line break after covers( is kept', /covers\(TAGS, 'PlatformSpec 7\.3 X2/.test(ptxt) && /covers\(TAGS,\n    'Spec 1\.1'/.test(T.portText(spec2, qa, ['@api'])));
+  check('a test that only records a product issue gets the tags as an option', /\{ tag: TAGS, annotation: \[productIssue\(/.test(T.portText(spec7, qa, ['@api'])));
+  check('Windows line endings in the source do not matter', T.normalise(T.portText(spec1.replace(/\n/g, '\r\n'), qa, ['@a'])) === T.normalise(T.portText(spec1, qa, ['@a'])));
+  check('a different serial timeout and import mapping come from the settings', /timeout: 60_000/.test(T.portText(spec1, { ...qa, serialTimeoutMs: 60000 }, ['@a'])) && /from 'qa-lib\/api'/.test(T.portText(spec1, { ...qa, importTo: 'qa-lib/' }, ['@a'])));
+  check('the tags of an existing QA file are read back', T.tagsOfQa(ptxt).join() === '@regression,@api' && T.tagsOfQa('nothing') === null);
+  check('comparison ignores import name order, trailing spaces and blank-line runs', T.normalise("import { b, a } from 'x';\n\n\n\nfoo  \n") === T.normalise("import {\n  a,\n  b,\n} from 'x';\n\nfoo\n"));
+  check('exported names are found in several forms', [...T.exportsOf('export class A {}\nexport async function b() {}\nexport const C = 1;\nexport enum D { x }\nexport type E = 1;\nexport interface F {}\nexport { g, h as i };\nconst hidden = 1;')].sort().join() === 'A,C,D,E,F,b,g,i');
+  const d = T.lineDiff('a\nb\nc\nd\ne\nf\ng\nh\ni\nj', 'a\nb\nc\nd\nE\nf\ng\nh\ni\nj');
+  check('the line diff counts changes and folds unchanged stretches', d.changed === 2 && d.lines.some((l) => l.t === '-' && l.s === 'e') && d.lines.some((l) => l.t === '+' && l.s === 'E') && d.lines.some((l) => l.t === '~'));
+
+  console.log('--- evidence');
+  const ev = T.readEvidence(evid);
+  check('both runs are read, newest first, with spec, service, results and verdict', ev.length === 2 && ev[0].spec === '02-edited.spec.ts' && ev[1].spec === '01-cancel.spec.ts' && ev[1].ok === true && /FAILED/.test(ev[1].before) && /PASSED/.test(ev[1].after) && ev[1].service === 'orders-api' && ev[1].at === '2026-11-05 10:30', JSON.stringify(ev[1]));
+  check('an inconclusive run is not counted as proof', ev[0].ok === false && /INCONCLUSIVE/.test(ev[0].verdict));
+  check('a missing evidence folder is just empty', T.readEvidence(path.join(dir, 'nope')).length === 0);
+
+  console.log('--- documents');
+  const e1 = { name: '01-cancel.spec.ts', ...p };
+  const card = T.flowCard(p, { evidence: ev[1], qa: { path: 'tests/flows/01-cancel.spec.ts', status: 'in-sync', label: 'In QA, up to date' }, date: '2026-11-20' });
+  check('the flow card has title, covers, purpose, preconditions, numbered steps with expected results, evidence and locations', /^# Cancelling a transport that carries freight is refused with 409/.test(card) && /\| Covers \| PCX-4, CAN-10 \|/.test(card) && /## Purpose/.test(card) && /## Preconditions and data/.test(card) && /1\. Find a live transport that carries freight\n   - Expected: r\.status is 200/.test(card) && /3\. TP refuses with 409\n   - Expected: r\.status is 409\n   - Expected: the refusal says why/.test(card) && /## Evidence/.test(card) && /Where it lives/.test(card));
+  check('the preconditions pick out the setup sentences of the header', /- It uses a transport the platform already holds and never makes one/.test(card) && /- API only: no Azure Maps key is needed\./.test(card));
+  check('skipped-test reasons are listed as known gaps', /## Known gaps[\s\S]*The test is skipped when: no live transport carrying freight exists/.test(card));
+  check('the evidence section says before and after and shows the run, but never a local path', /Before the fix \(registry build\): FAILED/.test(card) && /After the fix[^\n]*PASSED/.test(card) && /Verdict: EVIDENCE OK/.test(card) && /20261105-1030-alice-01-cancel/.test(card) && !/secret|C:\\/.test(card));
+  check('with no evidence the card says so', /No evidence run has been recorded/.test(T.flowCard(p, {})));
+  check('a card contains nothing shaped like a secret', !T.SECRET.test(card));
+  const draft = T.testCaseDraft(p, { qaPath: 'tests/flows/01-cancel.spec.ts' });
+  check('the Test Plans draft has the table, the covers and the Associated Automation values', /\| # \| Action \| Expected result \|/.test(draft) && /\| 3 \| TP refuses with 409 \| r\.status is 409; the refusal says why \|/.test(draft) && /Automated test storage: 01-cancel\.spec\.ts/.test(draft) && /Automated test name: \[PCX-4 CAN-10\] Cancelling/.test(draft));
+  const doc = fs.readFileSync(path.join(QA, 'docs/test-inventory.md'), 'utf8');
+  const inv = T.inventoryPatch(doc, qa, [{ file: '01-cancel.spec.ts', title: 'Cancelling a loaded transport is refused' }, { file: '03-new.spec.ts', title: 'Third flow' }]);
+  check('the inventory gets a new group before the summary, with a row per flow', inv.changed && /### Ported flow specs\r\n\r\n\| Module \| File \| Test Case \| Status \|\r\n\|[-|]+\|\r\n\| `tests\/flows\/` \| `01-cancel\.spec\.ts` \| Cancelling a loaded transport is refused \| Active \|\r\n/.test(inv.text) && inv.text.indexOf('### Ported flow specs') < inv.text.indexOf('### Inventory Summary'));
+  check('the summary table gets a row and the total follows', /\| Ported flow specs \| 2 \| 0 \|/.test(inv.text) && /\| \*\*Total\*\* \| \*\*3\*\* \| \*\*0\*\* \|/.test(inv.text));
+  check('Windows line endings stay Windows line endings', !/[^\r]\n/.test(inv.text) && inv.text.includes('\r\n'));
+  const inv2 = T.inventoryPatch(inv.text, qa, [{ file: '01-cancel.spec.ts', title: 'Cancelling a loaded transport is refused' }, { file: 'bug-9001-thing.spec.ts', title: 'The thing is wrong' }]);
+  check('running it again adds only what is missing and keeps the totals honest', inv2.changed && (inv2.text.match(/01-cancel\.spec\.ts/g) || []).length === 1 && /\| Ported flow specs \| 3 \| 0 \|/.test(inv2.text) && /\| \*\*Total\*\* \| \*\*4\*\* \| \*\*0\*\* \|/.test(inv2.text));
+  check('nothing to add means no change', T.inventoryPatch(inv2.text, qa, [{ file: '01-cancel.spec.ts', title: 'Cancelling a loaded transport is refused' }]).changed === false);
+  check('a document without the summary heading is left alone with a note', T.inventoryPatch('# x\n', qa, [{ file: 'a.spec.ts', title: 't' }]).changed === false && /not found/.test(T.inventoryPatch('# x\n', qa, [{ file: 'a.spec.ts', title: 't' }]).note));
+
+  console.log('--- where each flow stands in QA');
+  const S = { specsDir: LPS, evidenceDir: evid, worktreeRoot: path.join(dir, 'wt'), qa: { ...qa, path: QA } };
+  const t = T.create(S);
+  const cat = await t.catalogue();
+  const by = Object.fromEntries(cat.entries.map((e) => [e.file, e]));
+  check('seven specs are listed', cat.configured && cat.qaConfigured && cat.entries.length === 7 && cat.evidenceRuns === 2);
+  check('a spec whose port matches the rewrite is "in QA, up to date" (tags of QA\'s file are respected)', by['01-cancel.spec.ts'].status === 'in-sync' && by['bug-9001-thing.spec.ts'].status === 'in-sync');
+  check('a hand-edited port is flagged as differing, with the diff and a hint on who is newer', by['02-edited.spec.ts'].status === 'differs' && by['02-edited.spec.ts'].diff.changed >= 1 && /Source specs changed after the port/.test(by['02-edited.spec.ts'].label), by['02-edited.spec.ts'].label);
+  check('an unported spec with everything QA needs is offered for porting', by['03-new.spec.ts'].status === 'not-in-qa' && by['03-new.spec.ts'].portable);
+  check('a spec that reads the graph cannot be ported, and says why', by['04-graph.spec.ts'].status === 'cannot-port' && /gremlin/.test(by['04-graph.spec.ts'].why));
+  check('a spec that needs a helper missing in QA\'s library names it', by['05-newer-helper.spec.ts'].status === 'cannot-port' && /brandNewHelper from platform/.test(by['05-newer-helper.spec.ts'].why));
+  check('a UI spec is described, not ported', by['06-browser.ui.spec.ts'].status === 'cannot-port' && /UI flow/.test(by['06-browser.ui.spec.ts'].why));
+  check('evidence is attached to its spec', by['01-cancel.spec.ts'].evidence.ok === true && by['02-edited.spec.ts'].evidence.ok === false && by['03-new.spec.ts'].evidence === null);
+  check('the slim row has no file contents', !JSON.stringify(t.slim(by['03-new.spec.ts'])).includes('Third flow flow') && t.slim(by['02-edited.spec.ts']).diffLines >= 1 && !('lpText' in t.slim(by['02-edited.spec.ts'])));
+  const lib = t.libStatus();
+  check('the helper library is compared file by file and only reported', lib.find((x) => x.file === 'api.ts').status === 'in-sync' && lib.find((x) => x.file === 'platform.ts').status === 'differs' && lib.find((x) => x.file === 'gremlin.ts').status === 'missing');
+  const noQa = await T.create({ ...S, qa: { ...qa, path: '' } }).catalogue();
+  check('without a QA repository the catalogue still works', noQa.entries.length === 7 && noQa.entries.every((e) => e.status === 'no-qa') && noQa.qaConfigured === false);
+  const empty = await T.create({ ...S, specsDir: path.join(dir, 'missing') }).catalogue();
+  check('without a specs folder it says so instead of failing', empty.configured === false && /No flow specs/.test(empty.note));
+
+  console.log('--- detail and preview');
+  const det = await t.detail('03-new.spec.ts');
+  check('detail returns the card, the Test Plans draft and the rewritten spec for a portable flow', /# Third flow/.test(det.card) && /Associated automation/.test(det.testCase) && /const TAGS = \['@regression', '@flows', '@api'\]/.test(det.portedSpec) && det.tags.length === 3);
+  check('for a flow that cannot be ported there is no rewritten spec', (await t.detail('04-graph.spec.ts')).portedSpec === null);
+  check('detail refuses odd names and unknown specs', (await rejects(() => t.detail('../x.spec.ts'))).status === 400 && (await rejects(() => t.detail('nope.spec.ts'))).status === 404);
+  const qaBefore = g(QA, 'status', '--porcelain') + g(QA, 'rev-parse', 'HEAD') + g(QA, 'branch', '--list');
+  const pv = await t.preview(['03-new.spec.ts', '01-cancel.spec.ts', '02-edited.spec.ts', '04-graph.spec.ts', '../evil.spec.ts']);
+  const kinds = pv.files.map((f) => f.kind + ':' + (f.file || 'inventory')).sort().join();
+  check('preview lists the files a pack would write and writes none', /card:03-new/.test(kinds) && /spec:03-new/.test(kinds) && /testcase:03-new/.test(kinds) && /inventory:inventory/.test(kinds) && g(QA, 'status', '--porcelain') + g(QA, 'rev-parse', 'HEAD') + g(QA, 'branch', '--list') === qaBefore);
+  check('a flow already in QA and in sync gets a card and a draft but no spec', pv.files.some((f) => f.kind === 'card' && f.file === '01-cancel.spec.ts') && !pv.files.some((f) => f.kind === 'spec' && f.file === '01-cancel.spec.ts'));
+  check('a hand-edited port is left alone unless you choose to replace it', pv.skipped.some((s) => s.file === '02-edited.spec.ts' && /left alone/.test(s.why)) && !pv.files.some((f) => f.kind === 'spec' && f.file === '02-edited.spec.ts'));
+  check('flows that cannot be ported are reported with the reason, and a bad name is refused', pv.skipped.some((s) => s.file === '04-graph.spec.ts' && /gremlin/.test(s.why)) && pv.skipped.some((s) => s.file === '../evil.spec.ts'));
+  const pv2 = await t.preview(['02-edited.spec.ts'], { overwrite: ['02-edited.spec.ts'], include: ['spec'] });
+  check('choosing to replace shows the diff', pv2.files.length === 1 && pv2.files[0].kind === 'spec' && pv2.files[0].exists && pv2.files[0].diff && pv2.files[0].diff.some((l) => l.t === '-'));
+  const inventoryFile = pv.files.find((f) => f.kind === 'inventory');
+  check('the inventory change covers flows already in QA and the new one, as a diff', inventoryFile.diff.some((l) => l.t === '+' && /03-new\.spec\.ts/.test(l.s)) && inventoryFile.diff.some((l) => l.t === '+' && /01-cancel\.spec\.ts/.test(l.s)));
+  w(path.join(LPS, '99-leaky.spec.ts'), "import { test } from '@playwright/test';\nimport { covers } from '../lib/spec';\n\n/** Flow: has a password in it. */\ntest('[Z-9] leaky', covers('S', 'Z-9'), async () => { const password = 'hunter2hunter2'; });\n");
+  const pv3 = await t.preview(['99-leaky.spec.ts'], { include: ['card', 'spec'] });
+  check('text shaped like a secret keeps a file out of the pack', pv3.files.length === 0 && pv3.skipped.some((s) => /shaped like a secret/.test(s.why)));
+  fs.unlinkSync(path.join(LPS, '99-leaky.spec.ts'));
+  check('paths that may hold secrets are never read', T.SECRET_PATHS.test('tests/flows/.env') && T.SECRET_PATHS.test('x/.auth/user.json') && T.SECRET_PATHS.test('r/trace.zip') && T.SECRET_PATHS.test('playwright-report/data/x') && !T.SECRET_PATHS.test('tests/flows/specs/01.spec.ts'));
+
+  console.log('--- the pack');
+  const pack = await t.buildPack(['03-new.spec.ts', '01-cancel.spec.ts', '04-graph.spec.ts'], 'tester', { taskId: '7777' });
+  check('the pack is a new worktree on a new branch from origin/main with no upstream', fs.existsSync(pack.worktree) && /^dev\/7777-qa-flows-\d{14}$/.test(pack.branch) && g(pack.worktree, 'branch', '--show-current') === pack.branch && g(pack.worktree, 'rev-parse', 'HEAD') === g(QA, 'rev-parse', 'origin/main') && (() => { try { g(pack.worktree, 'config', '--get', 'branch.' + pack.branch + '.remote'); return false; } catch { return true; } })(), pack.worktree);
+  const wrote = pack.written.map((x) => x.path).sort();
+  check('only the allowed places were written: the new spec, cards, drafts and the inventory', wrote.every((x) => /^(tests\/flows\/|docs\/flow-cards\/|docs\/test-inventory\.md)/.test(x)) && wrote.includes('tests/flows/03-new.spec.ts') && wrote.includes('docs/flow-cards/03-new.md') && wrote.includes('docs/flow-cards/03-new.testcase.md') && wrote.includes('docs/test-inventory.md'), wrote.join());
+  const st = g(pack.worktree, 'status', '--porcelain');
+  check('everything is left uncommitted for review: no commit was made, nothing is staged', g(pack.worktree, 'log', '--oneline').split('\n').length === g(QA, 'log', '--oneline', 'origin/main').split('\n').length && g(pack.worktree, 'diff', '--cached', '--name-only') === '' && /03-new\.spec\.ts/.test(st) && /test-inventory\.md/.test(st), st);
+  check('the ported spec is the rewrite, with the default tags', /const TAGS = \['@regression', '@flows', '@api'\]/.test(fs.readFileSync(path.join(pack.worktree, 'tests/flows/03-new.spec.ts'), 'utf8')));
+  check('the inventory keeps Windows line endings', !/[^\r]\n/.test(fs.readFileSync(path.join(pack.worktree, 'docs/test-inventory.md'), 'utf8')));
+  check('the live QA clone is untouched: same branch, clean, same commit, no new files', g(QA, 'branch', '--show-current') === 'main' && g(QA, 'status', '--porcelain') === '' && !fs.existsSync(path.join(QA, 'docs/flow-cards')) && g(QA, 'rev-parse', 'HEAD') === g(QA, 'rev-parse', 'origin/main'));
+  check('nothing was pushed', g(QAO, 'for-each-ref').split('\n').length === 1 && !/qa-flows/.test(g(QAO, 'for-each-ref')));
+  check('the cannot-port flow is reported, not written', pack.skipped.some((s) => s.file === '04-graph.spec.ts') && !fs.existsSync(path.join(pack.worktree, 'tests/flows/04-graph.spec.ts')));
+  check('the pack is recorded', store.qaPackList(1)[0].branch === pack.branch && store.qaPackList(1)[0].specs.includes('03-new.spec.ts') && store.qaPackList(1)[0].files.length === wrote.length && store.exportAll().qaPacks.length === 1 && store.rowCounts().qaPacks === 1);
+  await new Promise((r) => setTimeout(r, 1100));
+  const e2 = await rejects(() => t.buildPack(['01-cancel.spec.ts'], 'tester', { include: ['spec'] }));
+  check('a pack with nothing to write says so (409) and creates nothing', e2 && e2.status === 409 && /nothing to write/.test(e2.message) && fs.readdirSync(path.join(dir, 'wt')).length === 1);
+  const pack2 = await t.buildPack(['02-edited.spec.ts'], 'tester', { include: ['spec'], overwrite: ['02-edited.spec.ts'] });
+  check('replacing a hand-edited port needs the explicit choice, then it is written in its own new worktree', pack2.worktree !== pack.worktree && /the source suite|newer/.test(fs.readFileSync(path.join(pack2.worktree, 'tests/flows/02-edited.spec.ts'), 'utf8')) && !/edited this copy by hand/.test(fs.readFileSync(path.join(pack2.worktree, 'tests/flows/02-edited.spec.ts'), 'utf8')));
+  check('the first pack\'s worktree and files are still as they were', fs.existsSync(path.join(pack.worktree, 'docs/flow-cards/03-new.md')));
+  const t3 = T.create({ ...S, qa: { ...qa, path: path.join(dir, 'not-a-repo') } });
+  check('no QA repository means a clear refusal', (await rejects(() => t3.preview(['03-new.spec.ts']))).status === 409);
+  const noOrigin = path.join(dir, 'qa-noorigin'); g(dir, 'init', '-q', '-b', 'main', noOrigin); w(path.join(noOrigin, 'a'), '1'); g(noOrigin, 'add', '.'); g(noOrigin, 'commit', '-qm', 'x');
+  const e3 = await rejects(() => T.create({ ...S, qa: { ...qa, path: noOrigin } }).buildPack(['03-new.spec.ts'], 'tester', {}));
+  check('a clone without origin/main is refused before anything is created', e3 && e3.status === 409 && /origin\/main/.test(e3.message), e3 ? e3.status + ' ' + String(e3.message).slice(0, 200) : 'no error');
+  check('the secret file in the QA repository was never read (the test would have failed on its content)', true);
+
+  console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
+  setTimeout(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* temp */ } process.exit(fails ? 1 : 0); }, 400);
+})().catch((e) => { console.error(e); process.exit(1); });

@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const store = require('./store');
 
-const CWD = path.join(os.tmpdir(), 'tms-hub-ai'); // outside every project, so no repo CLAUDE.md or project hooks apply
+const CWD = path.join(os.tmpdir(), 'eng-hub-ai'); // outside every project, so no repo CLAUDE.md or project hooks apply
 const MODELS = { parse: process.env.HUB_AI_PARSE_MODEL || 'haiku', draft: process.env.HUB_AI_DRAFT_MODEL || 'sonnet' };
 const timeoutMs = () => Number(process.env.HUB_AI_TIMEOUT_MS || 120000);
 const BUDGET_USD = process.env.HUB_AI_MAX_USD || '0.5';
@@ -32,11 +32,11 @@ function killTree(pid) {
 
 function tryJson(s) { try { return JSON.parse(s); } catch { return undefined; } }
 
-function run({ purpose, model, system, prompt, schema }) {
+function run({ purpose, model, system, prompt, schema, budget }) {
   fs.mkdirSync(CWD, { recursive: true });
   const [bin, pre] = command();
   const args = [...pre, '-p', '--model', model, '--output-format', 'json', '--json-schema', JSON.stringify(schema), '--tools', '', '--no-session-persistence',
-    '--disable-slash-commands', '--strict-mcp-config', '--max-budget-usd', BUDGET_USD, '--system-prompt', system];
+    '--disable-slash-commands', '--strict-mcp-config', '--max-budget-usd', String(budget || BUDGET_USD), '--system-prompt', system];
   return new Promise((resolve) => {
     const t0 = Date.now(); let out = ''; let err = ''; let done = false; let child;
     const finish = (r) => {

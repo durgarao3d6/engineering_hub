@@ -10,15 +10,24 @@
 <div class="app">
   <aside class="side" aria-label="Primary">
     <div class="brand"><span class="logo" aria-hidden="true">T</span><div><b>Hub</b><small>Engineering platform</small></div></div>
-    <nav class="menu" id="menu">
-      <a href="#plan" data-view="plan"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9"/></svg>Today's plan<span class="count warn" id="navCountPlan"></span></a>
-      <a href="#tasks" data-view="tasks"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Task board<span class="count warn" id="navCountTasks"></span></a>
-      <a href="#worktrees" data-view="worktrees"><svg viewBox="0 0 24 24"><path d="M6 3v12M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9c0 6-12 3-12 6"/></svg>Worktrees<span class="count" id="navCountActive"></span></a>
-      <a href="#cleared" data-view="cleared"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Cleared<span class="count" id="navCountCleared"></span></a>
-      <a href="#moves" data-view="moves"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Live moves<span class="count" id="navCountMoves"></span></a>
-      <a href="#stashes" data-view="stashes"><svg viewBox="0 0 24 24"><path d="M4 7h16v4H4zM6 11v8h12v-8M10 15h4"/></svg>Stashes<span class="count warn" id="navCountStash"></span></a>
-      <a href="#usage" data-view="usage"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Token usage</a>
-      <a href="#ratings" data-view="ratings"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>Workflow ratings</a>
+    <nav class="menu" id="menu" aria-label="Main">
+      <div class="menu-group" role="group" aria-label="Work"><div class="menu-sep" aria-hidden="true">Work</div>
+        <a href="#plan" data-view="plan"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9"/></svg>Today's plan<span class="count warn" id="navCountPlan"></span></a>
+        <a href="#planner" data-view="planner"><svg viewBox="0 0 24 24"><path d="M4 5h4v14H4zM10 5h4v9h-4zM16 5h4v6h-4z"/></svg>Work planner<span class="count warn" id="navCountPlanner"></span></a>
+        <a href="#tasks" data-view="tasks"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Task board<span class="count warn" id="navCountTasks"></span></a>
+        <a href="#comments" data-view="comments"><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4zM8 9h8M8 12h5"/></svg>Comments<span class="count warn" id="navCountComments"></span></a>
+      </div>
+      <div class="menu-group" role="group" aria-label="Code"><div class="menu-sep" aria-hidden="true">Code</div>
+        <a href="#worktrees" data-view="worktrees"><svg viewBox="0 0 24 24"><path d="M6 3v12M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9c0 6-12 3-12 6"/></svg>Worktrees<span class="count" id="navCountActive"></span></a>
+        <a href="#stashes" data-view="stashes"><svg viewBox="0 0 24 24"><path d="M4 7h16v4H4zM6 11v8h12v-8M10 15h4"/></svg>Stashes<span class="count warn" id="navCountStash"></span></a>
+        <a href="#moves" data-view="moves"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Live moves<span class="count" id="navCountMoves"></span></a>
+        <a href="#cleared" data-view="cleared"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Cleared<span class="count" id="navCountCleared"></span></a>
+        <a href="#testing" data-view="testing"><svg viewBox="0 0 24 24"><path d="M9 3h6M10 3v6L4 20h16L14 9V3M8 15h8"/></svg>Testing<span class="count" id="navCountTesting"></span></a>
+      </div>
+      <div class="menu-group" role="group" aria-label="Insights"><div class="menu-sep" aria-hidden="true">Insights</div>
+        <a href="#usage" data-view="usage"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Token usage</a>
+        <a href="#ratings" data-view="ratings"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>Workflow ratings</a>
+      </div>
     </nav>
     <button type="button" class="safety" id="safety" title="Database health and backups"><span class="dot" aria-hidden="true"></span><span id="safetyText">Checking backups…</span></button>
     <div class="side-foot"><span id="who" class="who"></span><button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button></div>
@@ -33,6 +42,12 @@
     <div id="banner" class="banner" hidden></div>
     <div id="stashBanner" class="banner" hidden></div>
     <div id="setupBanner" class="banner bad" hidden></div>
+
+    <section id="viewComments" class="view" hidden><div id="commentsBody"></div></section>
+
+    <section id="viewTesting" class="view" hidden><div id="testingBody"></div></section>
+
+    <section id="viewPlanner" class="view" hidden><div id="plannerBody"></div></section><div id="pagerTestingTmp" hidden></div>
 
     <section id="viewPlan" class="view" hidden><div id="planBody"></div></section>
 
@@ -78,7 +93,7 @@
     </section>
     <section id="viewMoves" class="view" hidden>
       <div class="card"><div class="scroll"><table class="grid">
-        <thead><tr><th>Started</th><th>Worktree and live repo</th><th>Status</th><th>Result</th></tr></thead>
+        <thead><tr><th>Started</th><th>Worktree and live repo</th><th>Status</th><th>Result</th><th class="r">Action</th></tr></thead>
         <tbody id="rows3"></tbody></table></div><div class="foot" id="foot3"></div></div>
     </section>
 
@@ -94,11 +109,12 @@
 
 <dialog id="drawer" class="drawer" aria-labelledby="drTitle">
   <header class="dr-h">
-    <div class="dr-t"><div id="drKicker" class="muted"></div><h2 id="drTitle"></h2></div>
+    <div class="dr-t"><div id="drKicker" class="muted"></div><h2 id="drTitle"></h2><div id="drMeta" class="dr-meta"></div></div>
     <div class="dr-actions"><a id="drBoards" class="btn" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in Azure Boards</a>
       <button type="button" class="icon-btn" id="drClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   </header>
   <div class="dr-b" id="drBody"></div>
+  <footer class="dr-f" id="drFoot"></footer>
 </dialog>
 
 <dialog id="dlg" aria-labelledby="dlgTitle">
@@ -109,6 +125,12 @@
   </form>
 </dialog>
 <script src="/app.js"></script>
+<script src="/charts.js"></script>
 <script src="/stash.js"></script>
+<script src="/planner.js"></script>
+<script src="/testing.js"></script>
+<script src="/comments.js"></script>
+<script src="/motion.js"></script>
+<script src="/grid.js"></script>
 </body>
 </html>
