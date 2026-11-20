@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Engineering Hub</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" aria-label="Primary">
+    <div class="brand"><span class="logo" aria-hidden="true">T</span><div><b>Hub</b><small>Engineering platform</small></div></div>
+    <nav class="menu" id="menu">
+      <a href="#plan" data-view="plan"><svg viewBox="0 0 24 24"><path d="M9 11l3 3 8-8M20 12v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h9"/></svg>Today's plan<span class="count warn" id="navCountPlan"></span></a>
+      <a href="#tasks" data-view="tasks"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Task board<span class="count warn" id="navCountTasks"></span></a>
+      <a href="#worktrees" data-view="worktrees"><svg viewBox="0 0 24 24"><path d="M6 3v12M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 9c0 6-12 3-12 6"/></svg>Worktrees<span class="count" id="navCountActive"></span></a>
+      <a href="#cleared" data-view="cleared"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg>Cleared<span class="count" id="navCountCleared"></span></a>
+      <a href="#moves" data-view="moves"><svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg>Live moves<span class="count" id="navCountMoves"></span></a>
+      <a href="#stashes" data-view="stashes"><svg viewBox="0 0 24 24"><path d="M4 7h16v4H4zM6 11v8h12v-8M10 15h4"/></svg>Stashes<span class="count warn" id="navCountStash"></span></a>
+      <a href="#usage" data-view="usage"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Token usage</a>
+      <a href="#ratings" data-view="ratings"><svg viewBox="0 0 24 24"><path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/></svg>Workflow ratings</a>
+    </nav>
+    <button type="button" class="safety" id="safety" title="Database health and backups"><span class="dot" aria-hidden="true"></span><span id="safetyText">Checking backups…</span></button>
+    <div class="side-foot"><span id="who" class="who"></span><button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button></div>
+  </aside>
+
+  <div class="main">
+    <header class="top">
+      <div><h1 id="title">Worktrees</h1><p id="subtitle" class="muted"></p></div>
+      <div class="top-actions"><span id="updated" class="muted"></span><button class="btn" id="refresh"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>Refresh</button></div>
+    </header>
+
+    <div id="banner" class="banner" hidden></div>
+    <div id="stashBanner" class="banner" hidden></div>
+    <div id="setupBanner" class="banner bad" hidden></div>
+
+    <section id="viewPlan" class="view" hidden><div id="planBody"></div></section>
+
+    <section id="viewTasks" class="view" hidden>
+      <div id="adoNote" class="banner" hidden></div>
+      <div class="kpis" id="kpisT"></div>
+      <div class="toolbar">
+        <div class="seg" id="tabT" role="group" aria-label="Task board section"></div>
+        <div class="seg" id="statusT" role="group" aria-label="Work item status"></div>
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="qT" placeholder="Search ID, title, repo, state" aria-label="Search tasks"></div>
+        <div class="seg" id="filterT" role="group" aria-label="Task filter"></div>
+        <select id="daysT" aria-label="Completed period" hidden></select>
+        <select id="typeT" aria-label="Work item type"></select>
+        <select id="sortT" aria-label="Sort tasks"></select>
+      </div>
+      <div id="cardsT" class="cards"></div>
+      <div class="card" id="reviewsWrap" hidden><div class="scroll"><table class="grid">
+        <thead><tr id="headT"></tr></thead><tbody id="rowsT"></tbody>
+      </table></div></div>
+      <div class="pager-bar foot-plain"><span id="footT"></span><div class="pager" id="pagerT"></div></div>
+    </section>
+
+    <section id="viewWorktrees" class="view" hidden>
+      <div class="kpis" id="kpis"></div>
+      <div class="toolbar">
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="q" placeholder="Search repo, branch, task ID, folder" aria-label="Search worktrees"></div>
+        <div class="seg" id="filter" role="group" aria-label="Status filter"></div>
+        <select id="repo" aria-label="Repository"></select>
+      </div>
+      <div class="card"><div class="scroll"><table class="grid" id="tbl">
+        <thead><tr id="head"></tr></thead><tbody id="rows"></tbody>
+      </table></div><div class="foot pager-bar"><span id="foot"></span><div class="pager" id="pagerW"></div></div></div>
+    </section>
+
+    <section id="viewCleared" class="view" hidden>
+      <div class="toolbar">
+        <div class="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input type="search" id="q2" placeholder="Search reason, branch, person, reference" aria-label="Search clearances"></div>
+        <div class="seg" id="filter2" role="group" aria-label="Clearance filter"></div>
+      </div>
+      <div class="card"><div class="scroll"><table class="grid" id="tbl2">
+        <thead><tr><th>Worktree</th><th>Task</th><th>Category</th><th>Reason</th><th>Cleared</th><th>Status</th><th class="r">Action</th></tr></thead>
+        <tbody id="rows2"></tbody></table></div><div class="foot" id="foot2"></div></div>
+    </section>
+    <section id="viewMoves" class="view" hidden>
+      <div class="card"><div class="scroll"><table class="grid">
+        <thead><tr><th>Started</th><th>Worktree and live repo</th><th>Status</th><th>Result</th></tr></thead>
+        <tbody id="rows3"></tbody></table></div><div class="foot" id="foot3"></div></div>
+    </section>
+
+    <section id="viewUsage" class="view" hidden><div id="usageBody"></div></section>
+
+    <section id="viewRatings" class="view" hidden><div id="ratingsBody"></div></section>
+
+    <section id="viewStashes" class="view" hidden><div id="stashBody"></div><div id="pagerStashTmp" hidden></div></section>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<dialog id="drawer" class="drawer" aria-labelledby="drTitle">
+  <header class="dr-h">
+    <div class="dr-t"><div id="drKicker" class="muted"></div><h2 id="drTitle"></h2></div>
+    <div class="dr-actions"><a id="drBoards" class="btn" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in Azure Boards</a>
+      <button type="button" class="icon-btn" id="drClose" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  </header>
+  <div class="dr-b" id="drBody"></div>
+</dialog>
+
+<dialog id="dlg" aria-labelledby="dlgTitle">
+  <form method="dialog" id="dlgForm" novalidate>
+    <header class="dlg-h"><h2 id="dlgTitle"></h2><button type="button" class="icon-btn" id="dlgX" aria-label="Close"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></header>
+    <div class="dlg-b" id="dlgBody"></div>
+    <footer class="dlg-f"><button type="button" class="btn" id="dlgCancel">Cancel</button><button type="submit" class="btn primary" id="dlgOk">Confirm</button></footer>
+  </form>
+</dialog>
+<script src="/app.js"></script>
+<script src="/stash.js"></script>
+</body>
+</html>

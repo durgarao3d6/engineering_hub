@@ -1,0 +1,14 @@
+{
+  "_note": "Neutral settings used by every test (nothing here belongs to a real organisation). The tests add their own throwaway repositories and data folders through environment variables.",
+  "title": "Test Hub",
+  "brand": "Test Hub",
+  "userName": "Tester",
+  "organization": "https://dev.azure.com/example-org",
+  "project": "Sample",
+  "branchPrefix": "dev",
+  "workspaceRoot": "",
+  "coWorkerNames": ["Alice", "Bob", "Carol", "Dave", "Erin", "Frank", "Grace", "Heidi"],
+  "botPullRequests": { "repos": ["BotRepo"], "titlePatterns": ["^(Update internal|NuGet Package Update|Npm Package Update)"] },
+  "usage": { "file": "./does-not-exist.jsonl" },
+  "scorecard": { "configFile": "./scorecard.config.json" }
+}

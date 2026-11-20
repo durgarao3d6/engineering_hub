@@ -1,0 +1,11 @@
+data/
+backups/
+node_modules/
+*.log
+*.db
+*.db-wal
+*.db-shm
+/hub.config.json
+/hub.config.json.bak
+/scorecard.config.local.json
+stash-archive

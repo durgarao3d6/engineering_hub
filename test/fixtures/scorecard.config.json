@@ -1,0 +1,67 @@
+{
+  "_note": "Editable. Each metric is scored 0 to 10 by a straight line between `worst` (0) and `best` (10); an area is the weighted mean of its metrics that have data. Thresholds and weights were set so the baseline window lands near the earlier judgment ratings (`original`); where it does not, the page says why. After that the TREND matters more than the absolute number.",
+  "baseline": { "from": "2026-10-20", "to": "2026-11-18", "label": "Baseline: 20 Oct to 18 Nov" },
+  "areas": [
+    { "id": "rules", "label": "Rules and safety", "original": 9,
+      "gap": "Work leaves the machine only with your OK, no AI attribution, credentials never read.",
+      "features": ["Read-only Azure DevOps guard", "Move to live with confirmation", "Guard tests"],
+      "next": "Keep the guards; add the pre-PR check so attribution trailers are caught before a push.",
+      "metrics": [
+        { "id": "attribution", "label": "Commits with an AI-attribution trailer", "unit": "% of commits", "worst": 10, "best": 0, "weight": 1, "source": "local git" },
+        { "id": "guardHooks", "label": "Guard hooks and tests in place", "unit": "of 4", "worst": 0, "best": 4, "weight": 0.25, "source": "files" }
+      ] },
+    { "id": "lessons", "label": "Capturing lessons", "original": 8,
+      "gap": "Lessons are written but nothing enforces them.",
+      "features": ["Task notes (Decisions, Findings)", "Session hooks that ask for a note"],
+      "next": "Turn the top learnings into pre-PR checks so they are enforced, not just read.",
+      "metrics": [
+        { "id": "learningsPerWeek", "label": "Shared learnings added per week", "unit": "per week", "worst": 0, "best": 16, "weight": 1, "source": "learnings store" },
+        { "id": "decisionsPerWeek", "label": "Hub notes (Decisions, Findings) per week", "unit": "per week", "worst": 0, "best": 6, "weight": 0.5, "source": "hub", "hub": true }
+      ] },
+    { "id": "design", "label": "Workflow design", "original": 8,
+      "gap": "Work that is half-done, unpushed or forgotten across your clones.",
+      "features": ["Worktrees page", "Task board", "Move to live", "Clear with reason"],
+      "next": "Clear or finish the stale and merged worktrees; use Move to live instead of hand-merging.",
+      "metrics": [
+        { "id": "branchCoverage", "label": "Worktrees that carry a task id", "unit": "%", "worst": 40, "best": 100, "weight": 1, "source": "hub", "current": true },
+        { "id": "staleWorktrees", "label": "Stale or merged worktrees left on disk", "unit": "worktrees", "worst": 20, "best": 0, "weight": 1, "source": "hub", "current": true }
+      ] },
+    { "id": "proving", "label": "Proving fixes", "original": 4,
+      "gap": "Fixes are shown with unit tests and a browser check, rarely with a repeatable test.",
+      "features": ["(testing phase not built yet)"],
+      "next": "Build the testing phase: a bug-<ID> spec for every platform bug and an evidence run before the PR.",
+      "metrics": [
+        { "id": "testRatio", "label": "Bug-fix PRs that change a test file", "unit": "%", "worst": 40, "best": 100, "weight": 1, "source": "Azure DevOps" },
+        { "id": "bugSpecs", "label": "bug-<ID> flow specs", "unit": "specs", "worst": 0, "best": 12, "weight": 1, "source": "files" },
+        { "id": "evidenceRuns", "label": "Evidence runs recorded", "unit": "runs", "worst": 0, "best": 6, "weight": 1, "source": "files" }
+      ] },
+    { "id": "prepr", "label": "Catching problems before the PR", "original": 4,
+      "gap": "Build failures and review comments arrive after the push.",
+      "features": ["(pre-PR check not built yet)"],
+      "next": "Build the pre-PR check: local build plus the learnings rules plus an AI review before you push.",
+      "metrics": [
+        { "id": "firstBuildFail", "label": "PRs whose first build failed", "unit": "%", "worst": 30, "best": 0, "weight": 1, "source": "Azure DevOps" },
+        { "id": "botThreads", "label": "AI review threads per PR", "unit": "per PR", "worst": 5, "best": 0.5, "weight": 1.5, "source": "Azure DevOps" },
+        { "id": "reopened", "label": "Bugs reopened per week", "unit": "per week", "worst": 6, "best": 0, "weight": 0.5, "source": "Azure DevOps" },
+        { "id": "secondPr", "label": "Bugs needing a second PR", "unit": "%", "worst": 30, "best": 0, "weight": 0.25, "source": "Azure DevOps" }
+      ] },
+    { "id": "sessions", "label": "Session hygiene", "original": 5,
+      "gap": "Very long mixed sessions that run out of context and start over.",
+      "features": ["Task notes shared with sessions", "Session start and stop hooks"],
+      "next": "Start a fresh session per task and let the hub carry the context; keep sessions under about 80 prompts.",
+      "metrics": [
+        { "id": "promptsInLongSessions", "label": "Prompts spent in sessions over 80 prompts", "unit": "%", "worst": 80, "best": 0, "weight": 1.5, "source": "usage log" },
+        { "id": "longSessions", "label": "Sessions over 80 prompts", "unit": "%", "worst": 15, "best": 0, "weight": 1, "source": "usage log" },
+        { "id": "notesCoverage", "label": "Tasks with code that have a hub note", "unit": "%", "worst": 0, "best": 80, "weight": 0.5, "source": "hub", "current": true, "hub": true }
+      ] },
+    { "id": "planning", "label": "Planning discipline", "original": null,
+      "gap": "New area: the day starts without a plan tied to work items.",
+      "features": ["Today's plan", "Draft work items for leads", "Close the day"],
+      "next": "Plan every morning and close the day; attach a work item to every task line.",
+      "metrics": [
+        { "id": "planDays", "label": "Plans closed per week", "unit": "per week", "worst": 0, "best": 4, "weight": 1, "source": "hub", "hub": true },
+        { "id": "planAdherence", "label": "Plan lines finished", "unit": "%", "worst": 20, "best": 90, "weight": 1, "source": "hub", "hub": true },
+        { "id": "planCoverage", "label": "Task lines tied to a work item", "unit": "%", "worst": 30, "best": 100, "weight": 1, "source": "hub", "hub": true }
+      ] }
+  ]
+}

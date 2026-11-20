@@ -1,0 +1,64 @@
+{
+  "_note": "Generic starting point; edit freely, or copy to scorecard.config.local.json (git-ignored, takes precedence) to keep your own. Each metric is scored 0 to 10 by a straight line between `worst` (0) and `best` (10); an area is the weighted mean of its metrics that have data; a metric whose source is not configured scores 'no data', never a false zero. Set `original` on an area to your own earlier rating to see measured vs judged side by side. The baseline is the 30 days that end 14 days ago, so it never overlaps the last 14 days; use `from` and `to` (YYYY-MM-DD) for fixed dates instead. The trend matters more than any absolute number.",
+  "baseline": { "days": 30, "endsDaysAgo": 14 },
+  "areas": [
+    { "id": "rules", "label": "Rules and safety", "original": null,
+      "gap": "Work leaves the machine only with your OK and guards stop unsafe actions.",
+      "features": ["Read-only Azure DevOps guard", "Move to live with confirmation", "Guard tests"],
+      "next": "Keep the guards and the guard tests; add any guard files of your own under scorecard.guardFiles in hub.config.json.",
+      "metrics": [
+        { "id": "guardHooks", "label": "Guard hooks and tests in place", "unit": "of 4", "worst": 0, "best": 4, "weight": 1, "source": "files" }
+      ] },
+    { "id": "lessons", "label": "Capturing lessons", "original": null,
+      "gap": "Lessons are written but nothing enforces them.",
+      "features": ["Task notes (Decisions, Findings)", "Session hooks that ask for a note"],
+      "next": "Write a decision or finding note for every task; turn the best ones into checks.",
+      "metrics": [
+        { "id": "learningsPerWeek", "label": "Shared learnings added per week", "unit": "per week", "worst": 0, "best": 16, "weight": 1, "source": "learnings folder (learningsDir)" },
+        { "id": "decisionsPerWeek", "label": "Hub notes (Decisions, Findings) per week", "unit": "per week", "worst": 0, "best": 6, "weight": 0.5, "source": "hub", "hub": true }
+      ] },
+    { "id": "design", "label": "Workflow design", "original": null,
+      "gap": "Work that is half-done, unpushed or forgotten across your clones.",
+      "features": ["Worktrees page", "Task board", "Move to live", "Clear with reason"],
+      "next": "Clear or finish the stale and merged worktrees; use Move to live instead of hand-merging.",
+      "metrics": [
+        { "id": "branchCoverage", "label": "Worktrees that carry a task id", "unit": "%", "worst": 40, "best": 100, "weight": 1, "source": "hub", "current": true },
+        { "id": "staleWorktrees", "label": "Stale or merged worktrees left on disk", "unit": "worktrees", "worst": 20, "best": 0, "weight": 1, "source": "hub", "current": true }
+      ] },
+    { "id": "proving", "label": "Proving fixes", "original": null,
+      "gap": "Fixes are shown with a manual check, rarely with a repeatable test.",
+      "features": [],
+      "next": "Add a test with every bug fix.",
+      "metrics": [
+        { "id": "testRatio", "label": "Bug-fix PRs that change a test file", "unit": "%", "worst": 40, "best": 100, "weight": 1, "source": "Azure DevOps" }
+      ] },
+    { "id": "prepr", "label": "Catching problems before the PR", "original": null,
+      "gap": "Build failures and review comments arrive after the push.",
+      "features": [],
+      "next": "Build and test locally before you push.",
+      "metrics": [
+        { "id": "firstBuildFail", "label": "PRs whose first build failed", "unit": "%", "worst": 30, "best": 0, "weight": 1, "source": "Azure DevOps" },
+        { "id": "botThreads", "label": "Automated review threads per PR", "unit": "per PR", "worst": 5, "best": 0.5, "weight": 1, "source": "Azure DevOps" },
+        { "id": "reopened", "label": "Bugs reopened per week", "unit": "per week", "worst": 6, "best": 0, "weight": 0.5, "source": "Azure DevOps" },
+        { "id": "secondPr", "label": "Bugs needing a second PR", "unit": "%", "worst": 30, "best": 0, "weight": 0.25, "source": "Azure DevOps" }
+      ] },
+    { "id": "sessions", "label": "Session hygiene", "original": null,
+      "gap": "Very long mixed sessions that run out of context and start over.",
+      "features": ["Task notes shared with sessions", "Session start and stop hooks"],
+      "next": "Start a fresh session per task and let the hub carry the context; keep sessions under about 80 prompts.",
+      "metrics": [
+        { "id": "promptsInLongSessions", "label": "Prompts spent in sessions over 80 prompts", "unit": "%", "worst": 80, "best": 0, "weight": 1.5, "source": "usage log" },
+        { "id": "longSessions", "label": "Sessions over 80 prompts", "unit": "%", "worst": 15, "best": 0, "weight": 1, "source": "usage log" },
+        { "id": "notesCoverage", "label": "Tasks with code that have a hub note", "unit": "%", "worst": 0, "best": 80, "weight": 0.5, "source": "hub", "current": true, "hub": true }
+      ] },
+    { "id": "planning", "label": "Planning discipline", "original": null,
+      "gap": "The day starts without a plan tied to work items.",
+      "features": ["Today's plan", "Draft work items for leads", "Close the day"],
+      "next": "Plan every morning and close the day; attach a work item to every task line.",
+      "metrics": [
+        { "id": "planDays", "label": "Plans closed per week", "unit": "per week", "worst": 0, "best": 4, "weight": 1, "source": "hub", "hub": true },
+        { "id": "planAdherence", "label": "Plan lines finished", "unit": "%", "worst": 20, "best": 90, "weight": 1, "source": "hub", "hub": true },
+        { "id": "planCoverage", "label": "Task lines tied to a work item", "unit": "%", "worst": 30, "best": 100, "weight": 1, "source": "hub", "hub": true }
+      ] }
+  ]
+}

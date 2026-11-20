@@ -1,0 +1,14 @@
+{
+  "name": "engineering-hub",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local engineering hub: worktrees, stashes, tasks, notes, a morning plan and workflow ratings across all your git clones. No dependencies.",
+  "engines": { "node": ">=24" },
+  "bin": { "hub": "bin/hub.js" },
+  "scripts": {
+    "start": "node server.js",
+    "setup": "node bin/setup.js",
+    "check": "node bin/setup.js --check",
+    "test": "node test/run-all.js"
+  }
+}

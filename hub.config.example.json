@@ -1,0 +1,38 @@
+{
+  "_note": "Copy to hub.config.json (or run: node bin/setup.js --scan <folder>) and edit. Every setting is optional. Relative paths are relative to this file. hub.config.json is git-ignored, so your own values never leave your machine.",
+
+  "title": "Engineering Hub",
+  "brand": "Hub",
+  "userName": "Your name",
+
+  "organization": "https://dev.azure.com/your-organization",
+  "project": "Your Project",
+  "branchPrefix": "dev",
+
+  "scanFolders": ["C:\\work\\repos"],
+  "clones": [
+    { "key": "my-service", "path": "C:\\work\\other\\my-service", "layer": "backend" }
+  ],
+  "repoMapFile": "",
+
+  "workspaceRoot": "C:\\work",
+  "worktreeRoot": "C:\\work\\wt",
+  "dataDir": "",
+  "backupDir": "",
+  "port": 4700,
+
+  "coWorkerNames": ["Alice", "Bob", "Carol", "Dave", "Erin", "Frank", "Grace", "Heidi"],
+
+  "azureDevOps": { "enabled": true },
+  "botPullRequests": { "repos": [], "titlePatterns": ["^(NuGet Package Update|Npm Package Update|Bump |Dependabot)"] },
+
+  "usage": { "file": "", "hubBuildPrompt": "" },
+  "sessions": { "projectsDir": "" },
+  "learningsDir": "",
+  "scorecard": {
+    "configFile": "",
+    "guardFiles": [],
+    "settingsFiles": [],
+    "localPlatform": { "flowsDir": "", "evidenceDir": "" }
+  }
+}
