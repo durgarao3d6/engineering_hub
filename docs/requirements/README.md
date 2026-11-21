@@ -27,3 +27,5 @@ Evidence includes direct review of repository tree and selected source files, th
 
 ## Change management
 Requirements should be refined through issues/PRs. Track requirement ID, owner, acceptance tests, dependency, and decision. Changes affecting safety, permissions, identity, storage, or existing behavior require explicit review. Do not treat estimates or mock examples as observed production metrics.
+
+11. [11 Red-team product feasibility and negative business review](11-red-team-product-feasibility.md)
