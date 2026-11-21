@@ -15,6 +15,8 @@ Owner: Product owner (TBD). Business analyst: initial research draft. Approval: 
 8. [08 Acceptance criteria, UAT and traceability](08-acceptance-and-uat.md)
 9. [09 Decisions, assumptions, dependencies and risks](09-decisions-and-risks.md)
 10. [10 Comprehensive UX audit and redesign](10-ux-audit-and-redesign.md)
+11. [11 Red-team product feasibility and negative business review](11-red-team-product-feasibility.md)
+12. [12 Business operations growth strategy and 2026 market research](12-business-operations-growth-strategy.md)
 
 ## Executive decision
 Position Engineering Hub as a **local-first engineering attention and coordination center** connecting work items, code changes, Git worktrees, coding-agent sessions, review activity, and daily plans. **Do not** replace coding agents, Git clients, or issue trackers. Deliver a useful cross-provider vertical slice before adding autonomous execution.
@@ -27,5 +29,3 @@ Evidence includes direct review of repository tree and selected source files, th
 
 ## Change management
 Requirements should be refined through issues/PRs. Track requirement ID, owner, acceptance tests, dependency, and decision. Changes affecting safety, permissions, identity, storage, or existing behavior require explicit review. Do not treat estimates or mock examples as observed production metrics.
-
-11. [11 Red-team product feasibility and negative business review](11-red-team-product-feasibility.md)
