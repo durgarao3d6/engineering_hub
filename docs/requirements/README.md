@@ -17,9 +17,12 @@ Owner: Product owner (TBD). Business analyst: initial research draft. Approval: 
 10. [10 Comprehensive UX audit and redesign](10-ux-audit-and-redesign.md)
 11. [11 Red-team product feasibility and negative business review](11-red-team-product-feasibility.md)
 12. [12 Business operations growth strategy and 2026 market research](12-business-operations-growth-strategy.md)
+13. [13 Market-led product change request](13-market-led-product-change-request.md)
+14. [14 MVP functional requirements and acceptance](14-mvp-functional-requirements-and-acceptance.md)
+15. [15 Stakeholder business case and validation plan](15-stakeholder-business-case-and-validation-plan.md)
 
 ## Executive decision
-Position Engineering Hub as a **local-first engineering attention and coordination center** connecting work items, code changes, Git worktrees, coding-agent sessions, review activity, and daily plans. **Do not** replace coding agents, Git clients, or issue trackers. Deliver a useful cross-provider vertical slice before adding autonomous execution.
+**Updated recommendation (documents 11–15):** Validate a narrow local-first **unfinished-work continuity and recovery** wedge before broad provider generalization. The earlier multi-provider vision remains a longer-term option, not approved MVP scope. **Do not** replace coding agents, Git clients, or issue trackers.
 
 ## Priority legend
 P0 = required for portable foundation/MVP; P1 = high-value next release; P2 = later/experimental. Must/Should/Could/Won't are proposed MoSCoW designations. Every requirement has an ID for traceability.
