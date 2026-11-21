@@ -14,6 +14,7 @@ Owner: Product owner (TBD). Business analyst: initial research draft. Approval: 
 7. [07 Prioritized backlog and delivery roadmap](07-backlog-and-roadmap.md)
 8. [08 Acceptance criteria, UAT and traceability](08-acceptance-and-uat.md)
 9. [09 Decisions, assumptions, dependencies and risks](09-decisions-and-risks.md)
+10. [10 Comprehensive UX audit and redesign](10-ux-audit-and-redesign.md)
 
 ## Executive decision
 Position Engineering Hub as a **local-first engineering attention and coordination center** connecting work items, code changes, Git worktrees, coding-agent sessions, review activity, and daily plans. **Do not** replace coding agents, Git clients, or issue trackers. Deliver a useful cross-provider vertical slice before adding autonomous execution.
