@@ -7,9 +7,9 @@ const run = promisify(execFile);
 const FIELDS = 'number,title,state,isDraft,url,headRefName,baseRefName,updatedAt';
 async function gh(args, cwd) {
   const opts = { cwd, timeout: 12000, maxBuffer: 2 * 1024 * 1024, windowsHide: true };
-  // gh.cmd on Windows is a batch script; invoke through cmd.exe without a shell on Unix.
-  const cmd = process.platform === 'win32' ? 'cmd.exe' : 'gh';
-  const argv = process.platform === 'win32' ? ['/d', '/s', '/c', 'gh', ...args] : args;
+  // Execute the native binary directly to avoid command-shell injection.
+  const cmd = process.platform === 'win32' ? 'gh.exe' : 'gh';
+  const argv = args;
   try { return (await run(cmd, argv, opts)).stdout.trim(); }
   catch (e) { throw new Error(/ENOENT/.test(e.code || '') ? 'GitHub CLI not installed (install gh).' : 'GitHub CLI unavailable or not authenticated; run gh auth login and verify repository access.'); }
 }
