@@ -24,6 +24,7 @@
   "coWorkerNames": ["Alice", "Bob", "Carol", "Dave", "Erin", "Frank", "Grace", "Heidi"],
 
   "azureDevOps": { "enabled": true },
+  "integrations": { "enabled": false },
   "commentWatch": { "enabled": true, "pollMinutes": 10, "hoursFrom": 7, "hoursTo": 20, "nudgeDays": 2, "maxWatched": 400 },
   "planner": { "dayCapacity": 5, "workingDays": [1, 2, 3, 4, 5], "horizonDays": 5, "monitorEveryDays": 2, "wakeAfterWorkingDays": 10, "searchTypes": [], "ai": { "enabled": true, "maxItems": 30, "includeDiscussion": true, "commentsPerItem": 8, "analyseModel": "", "arrangeModel": "", "maxBudgetUsd": 0 } },
   "botPullRequests": { "repos": [], "titlePatterns": ["^(NuGet Package Update|Npm Package Update|Bump |Dependabot)"] },

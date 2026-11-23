@@ -157,6 +157,7 @@ module.exports = {
       serialTimeoutMs: int(qCfg.serialTimeoutMs, 180000, 1000, 3600000),
     },
   },
+  integrations: { enabled: !!(raw.integrations && typeof raw.integrations === 'object' && raw.integrations.enabled === true) }, // optional, read-only GitHub (gh CLI) and Codex/Gemini session discovery; off unless you turn it on
   commentWatch: {
     enabled: cwCfg.enabled !== false,
     pollMinutes: int(cwCfg.pollMinutes, 10, 2, 240),
