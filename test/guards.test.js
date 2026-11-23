@@ -129,6 +129,15 @@ const O = require(HUB + '/config.js').org || 'https://dev.azure.com/example-org'
   check('scorecard.js only reads the Azure DevOps hooks settings as text and never writes outside the hub data folder', !/writeFileSync\((?!RESULT_FILE|tmp)/.test(scSrc.replace(/const tmp = RESULT_FILE \+ '\.tmp'; fs\.writeFileSync\(tmp/, '')));
   check('the command-line tool and hooks never open the database', ['bin/hub.js', 'hooks/session-start.js', 'hooks/stop-reminder.js', 'lib/format.js', 'lib/task.js'].every((f) => { try { return !/DatabaseSync|require\('\.\.\/store'\)|require\('\.\/store'\)/.test(fs.readFileSync(HUB + '/' + f, 'utf8')); } catch { return false; } }));
 
+  console.log('--- the optional integrations only read');
+  const ghSrc = src.get('integrations/github.js') || '', agSrc = src.get('integrations/agents.js') || '';
+  const ghAllowed = (ghSrc.match(/new Set\(\[([^\]]*)\]\)/) || [, ''])[1].split(',').map((x) => x.trim().replace(/['"]/g, '')).filter(Boolean);
+  const ghVerbs = [...ghSrc.matchAll(/gh\(\[\s*'([a-z]+)',\s*'([a-z]+)'/g)].map((m) => m[1] + ' ' + m[2]);
+  check('github.js allows only "repo view" and "pr list", and calls only those', ghAllowed.sort().join('|') === 'pr list|repo view' && ghVerbs.length === 2 && ghVerbs.every((v) => ghAllowed.includes(v)), ghAllowed.join('|') + ' / ' + ghVerbs.join('|'));
+  check('github.js starts gh directly (no shell), never uses the Azure DevOps client and never fetches', /execFile\b/.test(ghSrc) && !/shell\s*:\s*true|\bexec\(|spawn|collectors\/ado|\bfetch\(/.test(ghSrc));
+  check('agents.js reads file names only: no file contents, no processes, no network, no writes', agSrc.length > 0 && !/readFileSync|readFile\(|createReadStream|child_process|execFile|spawn|\bfetch\(|writeFileSync|appendFileSync|unlinkSync|rmSync/.test(agSrc));
+  check('server.js turns the integration routes off unless the settings enable them', /cfg\.integrations\.enabled/.test(src.get('server.js')) && /integrations: \{ enabled: !!\(/.test(src.get('config.js')));
+
   console.log('--- the comment watch only reads and only notifies');
   const cwSrc = src.get('commentwatch.js') || '';
   check('commentwatch.js has no Azure DevOps client, no network, no shell, no git and writes no files', cwSrc.length > 0 && !/collectors\/ado|\bado\(|\bfetch\(|child_process|execFile|spawn|gitx?\(|writeFileSync|appendFileSync|unlinkSync|rmSync/.test(cwSrc));

@@ -22,6 +22,8 @@ const planai = require('./planai');
 const testingMod = require('./testing');
 const usage = require('./usage');
 const sessionsMod = require('./sessions');
+const agentIntegrations = require('./integrations/agents');
+const githubIntegration = require('./integrations/github');
 const ai = require('./ai');
 const planner = require('./planner');
 const scorecard = require('./scorecard');
@@ -669,6 +671,15 @@ const server = http.createServer(async (req, res) => {
       if (p === '/api/me') return json(res, 200, { user: USER, categories: CATEGORIES, title: cfg.title, brand: cfg.brand, userName: cfg.userName, organization: cfg.org, project: cfg.project, adoConfigured: cfg.adoConfigured,
         branchPrefix: cfg.branchPrefix, workspaceRoot: cfg.workspaceRoot, hubDir: cfg.root, configFile: cfg.configFile, problems: cfg.problems });
       if (p === '/api/worktrees') return json(res, 200, annotate(await worktrees(url.searchParams.get('refresh') === '1')));
+      if (p === '/api/integrations/agents' || p === '/api/integrations/github') {
+        if (!cfg.integrations.enabled) return json(res, 404, { error: 'Integrations are off. Set "integrations": { "enabled": true } in hub.config.json to use them.' });
+        if (p === '/api/integrations/agents') return json(res, 200, agentIntegrations.discoverAll());
+        const requested = url.searchParams.get('repo') || '';
+        const clone = requested && path.isAbsolute(requested) ? cloneList().find((c) => store.keyOf(path.resolve(c.path)) === store.keyOf(path.resolve(requested))) : null; // same case-insensitive path rule as the rest of the hub
+        if (!clone) return json(res, 400, { error: 'Choose a configured repository path.' });
+        try { return json(res, 200, await githubIntegration.inspect(clone.path)); }
+        catch (e) { return json(res, e.kind === 'noremote' ? 404 : e.kind === 'auth' ? 401 : 502, { error: e.message, kind: e.kind || 'other' }); }
+      }
       if (p === '/api/clearances') return json(res, 200, { clearances: store.list() });
       if (p === '/api/tasks') {
         const d = await tasks(url.searchParams.get('refresh') === '1');
